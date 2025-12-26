@@ -1,0 +1,125 @@
+﻿<Window x:Class="SimpleViewer.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="SimpleViewer" Height="800" Width="1200"
+        Background="{DynamicResource {x:Static SystemColors.WindowBrushKey}}"
+        Foreground="{DynamicResource {x:Static SystemColors.WindowTextBrushKey}}"
+        AllowDrop="True" Drop="Window_Drop" Focusable="True">
+
+    <Window.Resources>
+        <Style TargetType="Menu">
+            <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.MenuBarBrushKey}}"/>
+            <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.MenuTextBrushKey}}"/>
+            <Setter Property="BorderThickness" Value="0,0,0,1"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource {x:Static SystemColors.ActiveBorderBrushKey}}"/>
+        </Style>
+        <Style TargetType="MenuItem">
+            <Setter Property="Padding" Value="10,6"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid x:Name="RootGrid">
+        <DockPanel LastChildFill="True">
+
+            <Menu DockPanel.Dock="Top">
+                <MenuItem Header="ファイル(_F)">
+                    <MenuItem Header="開く(_O)..." Click="MenuOpen_Click" InputGestureText="Ctrl+O"/>
+                    <MenuItem Header="閉じる(_C)" Click="MenuClose_Click" InputGestureText="Ctrl+W"/>
+                    <Separator/>
+                    <MenuItem Header="終了(_X)" Click="MenuExit_Click" InputGestureText="Alt+F4"/>
+                </MenuItem>
+                <MenuItem Header="表示(_V)">
+                    <MenuItem Header="カタログ表示(_C)" Click="MenuCatalog_Click" InputGestureText="F3"/>
+                    <MenuItem Header="サイドバー切替(_S)" Click="MenuToggleSidebar_Click" InputGestureText="F4"/>
+                    <MenuItem Header="表示モード切替(_M)" Click="MenuToggleMode_Click" InputGestureText="S"/>
+                    <Separator/>
+                    <MenuItem Header="ズームイン" Click="MenuZoomIn_Click" InputGestureText="Ctrl++"/>
+                    <MenuItem Header="ズームアウト" Click="MenuZoomOut_Click" InputGestureText="Ctrl+-"/>
+                    <MenuItem Header="実寸 (100%)" Click="MenuResetZoom_Click" InputGestureText="Ctrl+0"/>
+                    <MenuItem Header="ウィンドウ幅に合わせる" Click="MenuFitWidth_Click" InputGestureText="Ctrl+F"/>
+                    <MenuItem Header="ウィンドウ全体に合わせる" Click="MenuFitPage_Click" InputGestureText="Ctrl+G"/>
+                </MenuItem>
+            </Menu>
+
+            <Border DockPanel.Dock="Bottom" 
+                    Background="{DynamicResource {x:Static SystemColors.ControlBrushKey}}" 
+                    BorderThickness="0,1,0,0" BorderBrush="{DynamicResource {x:Static SystemColors.ActiveBorderBrushKey}}" 
+                    Padding="12,6">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="150"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="300"/>
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock x:Name="StatusText" Text="0 / 0" VerticalAlignment="Center" FontWeight="Bold"/>
+
+                    <Slider x:Name="PageSlider" Grid.Column="1" VerticalAlignment="Center" 
+                            Focusable="False" Minimum="0" IsMoveToPointEnabled="True" 
+                            FlowDirection="RightToLeft" PreviewMouseLeftButtonUp="PageSlider_PreviewMouseLeftButtonUp"/>
+
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right">
+                        <TextBlock x:Name="ModeText" Text="単一表示" VerticalAlignment="Center" Margin="0,0,15,0" FontWeight="Bold"/>
+                        <Button Click="MenuResetZoom_Click" Background="Transparent" BorderBrush="Transparent" Cursor="Hand">
+                            <TextBlock x:Name="ZoomText" Text="100%" Width="80" TextAlignment="Right" VerticalAlignment="Center"/>
+                        </Button>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition x:Name="SidebarColumn" Width="200" MinWidth="0"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <Border Grid.Column="0" Background="{DynamicResource {x:Static SystemColors.ControlLightLightBrushKey}}" 
+                        BorderBrush="{DynamicResource {x:Static SystemColors.ActiveBorderBrushKey}}" BorderThickness="0,0,1,0">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <ItemsControl x:Name="ThumbnailSidebar">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <VirtualizingStackPanel IsVirtualizing="True" VirtualizationMode="Recycling"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Border>
+
+                <GridSplitter Grid.Column="1" HorizontalAlignment="Stretch" Background="Transparent"/>
+
+                <ScrollViewer x:Name="MainScrollViewer" Grid.Column="2" Background="Black" 
+                              HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                              SizeChanged="MainScrollViewer_SizeChanged"
+                              PreviewMouseWheel="MainScrollViewer_PreviewMouseWheel"
+                              MouseLeftButtonDown="MainScrollViewer_MouseLeftButtonDown"
+                              MouseMove="MainScrollViewer_MouseMove"
+                              PreviewMouseLeftButtonUp="MainScrollViewer_MouseLeftButtonUp">
+                    <Grid x:Name="ViewContainer" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal">
+                            <Image x:Name="ImageLeft" Stretch="None" RenderOptions.BitmapScalingMode="HighQuality"/>
+                            <Image x:Name="ImageRight" Stretch="None" RenderOptions.BitmapScalingMode="HighQuality"/>
+                        </StackPanel>
+                    </Grid>
+                </ScrollViewer>
+            </Grid>
+        </DockPanel>
+
+        <Grid x:Name="CatalogOverlay" Visibility="Collapsed" Background="#F2000000">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+            <Border Background="{DynamicResource {x:Static SystemColors.ControlBrushKey}}" Padding="20,10">
+                <Grid>
+                    <TextBlock Text="カタログ一覧" FontSize="20" FontWeight="Bold" VerticalAlignment="Center"/>
+                    <Button Content="閉じる (Esc)" HorizontalAlignment="Right" Padding="20,8" Click="CloseCatalog_Click"/>
+                </Grid>
+            </Border>
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                <WrapPanel x:Name="CatalogPanel" HorizontalAlignment="Center" Margin="20"/>
+            </ScrollViewer>
+        </Grid>
+    </Grid>
+</Window>
