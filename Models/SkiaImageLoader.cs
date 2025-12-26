@@ -53,33 +53,59 @@ public static class SkiaImageLoader
         try
         {
             using var ms = new MemoryStream(data);
-            // コーデックを作成（まだ全データは展開されない）
             using var codec = SKCodec.Create(ms);
             if (codec == null) return null;
 
-            // 元のアスペクト比を維持してターゲットの高さを計算
+            // 1. コーデックが許容する最適な縮小サイズを取得
             double ratio = (double)targetWidth / codec.Info.Width;
-            int targetHeight = (int)(codec.Info.Height * ratio);
+            SKSizeI supportedDimensions = codec.GetScaledDimensions((float)ratio);
 
-            // デコード後の情報を定義
-            var info = new SKImageInfo(targetWidth, targetHeight);
+            // 2. デコード用の Info を作成
+            SKImageInfo decodeInfo = new SKImageInfo(
+                supportedDimensions.Width,
+                supportedDimensions.Height,
+                codec.Info.ColorType,
+                codec.Info.AlphaType,
+                codec.Info.ColorSpace);
 
-            // 指定サイズでBitmapのメモリを確保
-            using var skBitmap = new SKBitmap(info);
+            // 3. デコード用の一時バッファを確保
+            using var tempBitmap = new SKBitmap(decodeInfo);
+            var result = codec.GetPixels(decodeInfo, tempBitmap.GetPixels());
 
-            // 【高速化の肝】GetPixelsを呼び出す際、SkiaSharpがデコードとリサイズを同時に行う
-            // これにより、フルサイズのメモリを消費することなく縮小画像を得られる
-            var result = codec.GetPixels(skBitmap.Info, skBitmap.GetPixels());
+            if (result != SKCodecResult.Success)
+            {
+                return LoadImage(data);
+            }
 
-            if (result != SKCodecResult.Success) return null;
+            // 4. 指定サイズへの最終リサイズ（最新の SKSamplingOptions を使用）
+            int targetHeight = (int)(codec.Info.Height * ((double)targetWidth / codec.Info.Width));
+            var finalInfo = new SKImageInfo(targetWidth, targetHeight, decodeInfo.ColorType, decodeInfo.AlphaType, decodeInfo.ColorSpace);
 
-            var bitmapSource = skBitmap.ToWriteableBitmap();
-            bitmapSource.Freeze();
-            return bitmapSource;
+            var finalBitmap = new SKBitmap(finalInfo);
+
+            // 【修正ポイント】SKSamplingOptions の使用
+            // SKFilterQuality.High に相当するのは SKCubicResampler.CatmullRom です。
+            // 一般的な高品質リサイズには、SKFilterMode.Linear と SKMipmapMode.Linear の組み合わせも有効です。
+            var sampling = new SKSamplingOptions(SKCubicResampler.CatmullRom);
+
+            // 新しいオーバーロードを使用
+            if (tempBitmap.ScalePixels(finalBitmap, sampling))
+            {
+                var source = finalBitmap.ToWriteableBitmap();
+                finalBitmap.Dispose();
+                source.Freeze();
+                return source;
+            }
+            else
+            {
+                var source = tempBitmap.ToWriteableBitmap();
+                source.Freeze();
+                return source;
+            }
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[SkiaImageLoader] サムネイルデコードエラー: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"[SkiaImageLoader] サムネイル生成失敗: {ex.Message}");
             return null;
         }
     }
