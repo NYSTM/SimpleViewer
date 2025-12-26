@@ -1,12 +1,13 @@
 ﻿using SimpleViewer.Models;
 using System.IO;
 using System.IO.Compression;
+using System.Windows.Media.Imaging;
 
 public class ArchiveImageSource : ImageSourceBase, IImageSource
 {
-    private ZipArchive _archive;
+    private ZipArchive? _archive;
     private readonly List<ZipArchiveEntry> _entries;
-    private readonly object _zipLock = new(); // Zipアクセス排他用
+    private readonly object _zipLock = new();
 
     public ArchiveImageSource(string zipPath)
     {
@@ -19,29 +20,32 @@ public class ArchiveImageSource : ImageSourceBase, IImageSource
 
     public Task<int> GetPageCountAsync() => Task.FromResult(_entries.Count);
 
-    public Stream? GetPageStream(int index)
+    private byte[]? GetEntryBytes(int index)
     {
-        if (index < 0 || index >= _entries.Count) return null;
-
-        lock (_zipLock) // 複数スレッドからの同時展開を防止
+        lock (_zipLock)
         {
-            if (_archive == null) return null;
-            var ms = new MemoryStream();
-            using (var entryStream = _entries[index].Open())
-            {
-                entryStream.CopyTo(ms);
-            }
-            ms.Position = 0;
-            return ms;
+            if (_archive == null || index < 0 || index >= _entries.Count) return null;
+            using var entryStream = _entries[index].Open();
+            using var ms = new MemoryStream();
+            entryStream.CopyTo(ms);
+            return ms.ToArray();
         }
+    }
+
+    public async Task<BitmapSource?> GetPageImageAsync(int index)
+    {
+        var data = await Task.Run(() => GetEntryBytes(index));
+        return data != null ? await Task.Run(() => SkiaImageLoader.LoadImage(data)) : null;
+    }
+
+    public async Task<BitmapSource?> GetThumbnailAsync(int index, int width)
+    {
+        var data = await Task.Run(() => GetEntryBytes(index));
+        return data != null ? await Task.Run(() => SkiaImageLoader.LoadThumbnail(data, width)) : null;
     }
 
     public void Dispose()
     {
-        lock (_zipLock)
-        {
-            _archive?.Dispose();
-            _archive = null!;
-        }
+        lock (_zipLock) { _archive?.Dispose(); _archive = null; }
     }
 }

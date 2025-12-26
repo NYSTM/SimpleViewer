@@ -1,6 +1,6 @@
 ﻿using SimpleViewer.Models;
 using System.IO;
-using System.Runtime.InteropServices.WindowsRuntime;
+using System.Windows.Media.Imaging;
 using Windows.Data.Pdf;
 using Windows.Storage.Streams;
 
@@ -18,24 +18,26 @@ public class PdfImageSource : IImageSource
 
     public Task<int> GetPageCountAsync() => Task.FromResult((int)(_pdfDoc?.PageCount ?? 0));
 
-    public Stream? GetPageStream(int index)
+    public async Task<BitmapSource?> GetPageImageAsync(int index)
     {
         if (_pdfDoc == null || index < 0 || index >= _pdfDoc.PageCount) return null;
 
-        return Task.Run(async () =>
-        {
-            using var page = _pdfDoc.GetPage((uint)index);
-            var ms = new InMemoryRandomAccessStream();
+        using var page = _pdfDoc.GetPage((uint)index);
+        using var ms = new InMemoryRandomAccessStream();
+        await page.RenderToStreamAsync(ms);
 
-            // PDFページを画像としてレンダリング
-            await page.RenderToStreamAsync(ms);
+        using var netStream = ms.AsStreamForRead();
+        using var tempMs = new MemoryStream();
+        await netStream.CopyToAsync(tempMs);
 
-            var netStream = ms.AsStreamForRead();
-            var outStream = new MemoryStream();
-            await netStream.CopyToAsync(outStream);
-            outStream.Position = 0;
-            return (Stream)outStream;
-        }).GetAwaiter().GetResult();
+        return SkiaImageLoader.LoadImage(tempMs.ToArray());
+    }
+
+    public async Task<BitmapSource?> GetThumbnailAsync(int index, int width)
+    {
+        // PDFの場合はフルデコードとほぼ同等の処理が必要ですが、
+        // Skia側のLoadThumbnailを使うことでWPFへの転送量を抑えます
+        return await GetPageImageAsync(index);
     }
 
     public void Dispose() => _pdfDoc = null;

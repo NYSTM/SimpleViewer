@@ -1,15 +1,14 @@
-﻿using System.IO;
+﻿using Microsoft.Win32;
+using SimpleViewer.Models;
+using SimpleViewer.Presenters;
+using System.IO;
 using System.Text.Json;
-using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using Microsoft.Win32;
-using SimpleViewer.Presenters;
-using SimpleViewer.Models;
-using System.Windows.Controls.Primitives;
 
 namespace SimpleViewer;
 

@@ -1,16 +1,14 @@
-﻿using System.IO;
+﻿using System.Windows.Media.Imaging;
 
 namespace SimpleViewer.Models;
 
 public interface IImageSource : IDisposable
 {
-    /// <summary>
-    /// 総ページ数（画像ファイル数）を取得する
-    /// </summary>
     Task<int> GetPageCountAsync();
 
-    /// <summary>
-    /// 指定したインデックスの画像データをStreamとして取得する
-    /// </summary>
-    Stream? GetPageStream(int index);
+    /// <summary> 高速フルデコードによる画像取得 </summary>
+    Task<BitmapSource?> GetPageImageAsync(int index);
+
+    /// <summary> デコード時リサイズによる高速サムネイル取得 </summary>
+    Task<BitmapSource?> GetThumbnailAsync(int index, int width);
 }
