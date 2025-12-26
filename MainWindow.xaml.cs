@@ -13,16 +13,6 @@ using System.Windows.Controls.Primitives;
 
 namespace SimpleViewer;
 
-public class AppSettings
-{
-    public string DisplayMode { get; set; } = "Single";
-    public string ZoomMode { get; set; } = "Manual";
-    public double ZoomFactor { get; set; } = 1.0;
-    public bool IsSidebarVisible { get; set; } = true;
-    public double WindowWidth { get; set; } = 1200;
-    public double WindowHeight { get; set; } = 800;
-}
-
 public partial class MainWindow : Window, IView
 {
     private readonly SimpleViewerPresenter _presenter;
@@ -67,16 +57,21 @@ public partial class MainWindow : Window, IView
 
     #region 設定永続化
 
+    // MainWindow.xaml.cs の中
     private void LoadSettings()
     {
         try
         {
             if (!File.Exists(_settingsPath)) return;
             string json = File.ReadAllText(_settingsPath);
+
+            // 型安全な読み込み
             var s = JsonSerializer.Deserialize<AppSettings>(json);
             if (s == null) return;
 
-            if (Enum.TryParse(s.DisplayMode, out DisplayMode dMode)) _presenter.SetDisplayMode(dMode);
+            // DisplayMode を直接セット可能
+            _presenter.SetDisplayMode(s.DisplayMode);
+
             if (Enum.TryParse(s.ZoomMode, out ZoomMode zMode)) _currentZoomMode = zMode;
             _zoomFactor = s.ZoomFactor;
             SidebarColumn.Width = s.IsSidebarVisible ? new GridLength(200) : new GridLength(0);
@@ -84,7 +79,7 @@ public partial class MainWindow : Window, IView
             this.Height = s.WindowHeight;
             ApplyZoom();
         }
-        catch { }
+        catch { /* 読み込み失敗時はデフォルト設定を使用 */ }
     }
 
     private void SaveSettings()
@@ -93,13 +88,14 @@ public partial class MainWindow : Window, IView
         {
             var s = new AppSettings
             {
-                DisplayMode = _presenter.CurrentDisplayMode.ToString(),
+                DisplayMode = _presenter.CurrentDisplayMode, // そのまま代入
                 ZoomMode = _currentZoomMode.ToString(),
                 ZoomFactor = _zoomFactor,
                 IsSidebarVisible = SidebarColumn.Width.Value > 0,
                 WindowWidth = this.ActualWidth,
                 WindowHeight = this.ActualHeight
             };
+            // インデント付きで保存（人間が読みやすいように）
             File.WriteAllText(_settingsPath, JsonSerializer.Serialize(s, new JsonSerializerOptions { WriteIndented = true }));
         }
         catch { }

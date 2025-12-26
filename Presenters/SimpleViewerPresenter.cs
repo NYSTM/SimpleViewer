@@ -1,179 +1,219 @@
-﻿using System.IO;
+﻿using System.Collections.Concurrent;
+using System.IO;
 using System.Windows.Media.Imaging;
 using SimpleViewer.Models;
+using System.Threading;
 
 namespace SimpleViewer.Presenters;
 
-public class SimpleViewerPresenter(IView view)
+public class SimpleViewerPresenter
 {
-    private IImageLoader? _loader;
-    private int _currentIndex = 0;
-    private DisplayMode _displayMode = DisplayMode.Single; // 起動時は単一表示
-    private readonly SpreadManager _spreadManager = new();
+    private readonly IView _view;
+    private IImageSource? _currentSource;
+    private int _currentPageIndex = 0;
+    private int _totalPageCount = 0;
+    public DisplayMode CurrentDisplayMode { get; private set; } = DisplayMode.Single;
 
-    public DisplayMode CurrentDisplayMode => _displayMode;
+    private readonly ConcurrentDictionary<int, BitmapSource> _imageCache = new();
+    private const int CacheRange = 4;
 
-    /// <summary>
-    /// ファイルまたはフォルダを開く
-    /// </summary>
+    // 排他制御とキャンセル用
+    private CancellationTokenSource? _navigationCts;
+    private CancellationTokenSource? _prefetchCts;
+    private readonly SemaphoreSlim _loadLock = new(1, 1); // 同時に1つのデコードのみ許可
+
+    public SimpleViewerPresenter(IView view) => _view = view;
+
     public async Task OpenSourceAsync(string path)
     {
+        CloseSource(); // 既存の処理を完全に止める
+
         try
         {
-            CloseSource();
-
-            string targetPath = path;
-            string? targetFileName = null;
-
-            // 1. パスの種類を判定
-            if (File.Exists(path))
-            {
-                string ext = Path.GetExtension(path).ToLower();
-                if (ext == ".zip")
-                {
-                    _loader = new ZipImageLoader();
-                }
-                else if (ext == ".pdf")
-                {
-                    _loader = new PdfImageLoader();
-                }
-                else
-                {
-                    // 単体画像の場合は親フォルダを対象にする
-                    _loader = new LocalImageLoader();
-                    targetPath = Path.GetDirectoryName(path) ?? path;
-                    targetFileName = Path.GetFileName(path);
-                }
-            }
-            else if (Directory.Exists(path))
-            {
-                _loader = new LocalImageLoader();
-            }
-
-            if (_loader == null) return;
-
-            // 2. ローダーの初期化
-            await _loader.InitializeAsync(targetPath);
-
-            // 3. 開始インデックスの特定
-            if (targetFileName != null && _loader is LocalImageLoader localLoader)
-            {
-                _currentIndex = localLoader.GetIndexByFileName(targetFileName);
-            }
-            else
-            {
-                _currentIndex = 0;
-            }
-
-            // 4. 表示更新（ここでIView.UpdateProgressが呼ばれ、サイドバーが構築される）
-            await UpdateDisplayAsync();
+            _currentSource = await ImageSourceFactory.CreateSourceAsync(path);
+            _totalPageCount = await _currentSource.GetPageCountAsync();
+            if (_totalPageCount > 0) await JumpToPageAsync(0);
         }
-        catch (Exception ex)
-        {
-            view.ShowError($"読み込みエラー: {ex.Message}");
-        }
-    }
-
-    /// <summary>
-    /// 高速なサムネイルを取得する (IImageLoaderに実装が必要)
-    /// </summary>
-    public async Task<BitmapSource?> GetThumbnailAsync(int index, int width)
-    {
-        if (_loader == null) return null;
-        // 各Loaderに実装した「サイズ制限デコード」版を呼び出す
-        return await _loader.LoadThumbnailAsync(index, width);
+        catch (Exception ex) { _view.ShowError($"ソースを開けません: {ex.Message}"); }
     }
 
     public void CloseSource()
     {
-        _loader?.Dispose();
-        _loader = null;
-        _currentIndex = 0;
+        // すべての非同期処理に停止命令を出す
+        _navigationCts?.Cancel();
+        _navigationCts?.Dispose();
+        _navigationCts = null;
+
+        _prefetchCts?.Cancel();
+        _prefetchCts?.Dispose();
+        _prefetchCts = null;
+
+        _imageCache.Clear();
+        _currentSource?.Dispose();
+        _currentSource = null;
     }
 
-    public async Task NextPageAsync()
+    /// <summary>
+    /// サムネイル取得メソッド（ビルドエラー解消用）
+    /// </summary>
+    public async Task<BitmapSource?> GetThumbnailAsync(int index, int width)
     {
-        if (_loader == null) return;
-        int step = (_displayMode == DisplayMode.Single) ? 1 : 2;
-        await MoveToAsync(_currentIndex + step);
-    }
+        if (_currentSource == null) return null;
 
-    public async Task PreviousPageAsync()
-    {
-        if (_loader == null) return;
-        int step = (_displayMode == DisplayMode.Single) ? 1 : 2;
-        await MoveToAsync(_currentIndex - step);
+        return await Task.Run(() =>
+        {
+            try
+            {
+                // サムネイル生成はメインの表示と競合しないよう、
+                // lockを使わずに、あるいは必要最小限の期間のみlockして処理
+                using var stream = _currentSource.GetPageStream(index);
+                if (stream == null) return null;
+
+                var bitmap = new BitmapImage();
+                bitmap.BeginInit();
+                bitmap.StreamSource = stream;
+                bitmap.DecodePixelWidth = width; // 高速化の鍵：必要なサイズでデコード
+                bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                bitmap.EndInit();
+                bitmap.Freeze();
+                return bitmap;
+            }
+            catch { return null; }
+        });
     }
 
     public async Task JumpToPageAsync(int index)
     {
-        await MoveToAsync(index);
+        if (_currentSource == null) return;
+
+        // 進行中の古いページ移動タスクをキャンセル
+        _navigationCts?.Cancel();
+        _navigationCts = new CancellationTokenSource();
+        var token = _navigationCts.Token;
+
+        // 見開き時の偶数丸め込み
+        if (CurrentDisplayMode != DisplayMode.Single && index > 0 && index < _totalPageCount - 1)
+        {
+            if (index % 2 != 0) index--;
+        }
+        _currentPageIndex = Math.Clamp(index, 0, _totalPageCount - 1);
+
+        try
+        {
+            // 画像取得
+            var images = await GetLayoutImagesAsync(_currentPageIndex, token);
+
+            if (token.IsCancellationRequested) return;
+
+            _view.SetImages(images.Left, images.Right);
+            _view.UpdateProgress(_currentPageIndex + 1, _totalPageCount);
+
+            // 先読み開始
+            StartPrefetch(_currentPageIndex);
+        }
+        catch (OperationCanceledException) { /* 無視 */ }
     }
+
+    private async Task<(BitmapSource? Left, BitmapSource? Right)> GetLayoutImagesAsync(int index, CancellationToken token)
+    {
+        if (CurrentDisplayMode == DisplayMode.Single)
+        {
+            var img = await GetCachedOrLoadImageAsync(index, token);
+            return (img, null);
+        }
+
+        bool isRTL = CurrentDisplayMode == DisplayMode.SpreadRTL;
+        var img1 = await GetCachedOrLoadImageAsync(index, token);
+        var img2 = (index + 1 < _totalPageCount) ? await GetCachedOrLoadImageAsync(index + 1, token) : null;
+
+        return isRTL ? (img2, img1) : (img1, img2);
+    }
+
+    private async Task<BitmapSource?> GetCachedOrLoadImageAsync(int index, CancellationToken token)
+    {
+        if (_imageCache.TryGetValue(index, out var cached)) return cached;
+
+        return await Task.Run(async () => {
+            await _loadLock.WaitAsync(token);
+            try
+            {
+                return LoadAndFreezeImage(index, token);
+            }
+            finally { _loadLock.Release(); }
+        }, token);
+    }
+
+    private BitmapSource? LoadAndFreezeImage(int index, CancellationToken token)
+    {
+        if (_currentSource == null || token.IsCancellationRequested) return null;
+
+        try
+        {
+            using var stream = _currentSource.GetPageStream(index);
+            if (stream == null || token.IsCancellationRequested) return null;
+
+            var bitmap = new BitmapImage();
+            bitmap.BeginInit();
+            bitmap.StreamSource = stream;
+            bitmap.CacheOption = BitmapCacheOption.OnLoad;
+            bitmap.EndInit();
+            bitmap.Freeze();
+
+            _imageCache.TryAdd(index, bitmap);
+            return bitmap;
+        }
+        catch { return null; }
+    }
+
+    private void StartPrefetch(int centerIndex)
+    {
+        _prefetchCts?.Cancel();
+        _prefetchCts = new CancellationTokenSource();
+        var token = _prefetchCts.Token;
+
+        Task.Run(async () =>
+        {
+            try
+            {
+                var keysToRemove = _imageCache.Keys.Where(k => Math.Abs(k - centerIndex) > CacheRange).ToList();
+                foreach (var k in keysToRemove) _imageCache.TryRemove(k, out _);
+
+                for (int i = 1; i <= CacheRange; i++)
+                {
+                    if (token.IsCancellationRequested) return;
+                    foreach (int idx in new[] { centerIndex + i, centerIndex - i })
+                    {
+                        if (idx >= 0 && idx < _totalPageCount && !_imageCache.ContainsKey(idx))
+                        {
+                            await Task.Run(async () => {
+                                await _loadLock.WaitAsync(token);
+                                try { LoadAndFreezeImage(idx, token); }
+                                finally { _loadLock.Release(); }
+                            }, token);
+                        }
+                    }
+                    await Task.Delay(5, token);
+                }
+            }
+            catch (OperationCanceledException) { }
+        }, token);
+    }
+
+    public async Task NextPageAsync() => await JumpToPageAsync(_currentPageIndex + (CurrentDisplayMode == DisplayMode.Single ? 1 : 2));
+    public async Task PreviousPageAsync() => await JumpToPageAsync(_currentPageIndex - (CurrentDisplayMode == DisplayMode.Single ? 1 : 2));
 
     public async Task ToggleDisplayModeAsync()
     {
-        _displayMode = _displayMode switch
+        CurrentDisplayMode = CurrentDisplayMode switch
         {
             DisplayMode.Single => DisplayMode.SpreadRTL,
             DisplayMode.SpreadRTL => DisplayMode.SpreadLTR,
-            DisplayMode.SpreadLTR => DisplayMode.Single,
             _ => DisplayMode.Single
         };
-        await UpdateDisplayAsync();
+        _imageCache.Clear();
+        await JumpToPageAsync(_currentPageIndex);
     }
 
-    private async Task MoveToAsync(int targetIndex)
-    {
-        if (_loader == null) return;
-        int oldIndex = _currentIndex;
-        _currentIndex = Math.Clamp(targetIndex, 0, _loader.TotalPages - 1);
-
-        // インデックスが変わった場合、または初回表示の場合
-        if (oldIndex != _currentIndex || targetIndex == 0)
-        {
-            await UpdateDisplayAsync();
-        }
-    }
-
-    private async Task UpdateDisplayAsync()
-    {
-        if (_loader == null)
-        {
-            view.SetImages(null, null);
-            return;
-        }
-
-        // 1. 現在のメイン画像をロード
-        var currentImg = await _loader.LoadPageAsync(_currentIndex);
-        if (currentImg == null) return;
-
-        // 2. 横長判定 (元画像が横長なら強制的に単一表示)
-        bool isWideImage = currentImg.PixelWidth > currentImg.PixelHeight;
-
-        if (isWideImage || _displayMode == DisplayMode.Single)
-        {
-            view.SetImages(currentImg, null);
-        }
-        else
-        {
-            // 見開き計算ロジック
-            var (leftIdx, rightIdx) = _spreadManager.GetPageIndices(_currentIndex, _loader.TotalPages, _displayMode);
-
-            int otherIdx = (_currentIndex == leftIdx) ? rightIdx : leftIdx;
-            BitmapSource? otherImg = (otherIdx != -1) ? await _loader.LoadPageAsync(otherIdx) : null;
-
-            if (_displayMode == DisplayMode.SpreadRTL)
-                view.SetImages(otherImg, currentImg); // 右綴じ
-            else
-                view.SetImages(currentImg, otherImg); // 左綴じ
-        }
-
-        // 3. UIのステータスバーやスライダー、サイドバーの更新を通知
-        view.UpdateProgress(_currentIndex + 1, _loader.TotalPages);
-    }
-
-    public void SetDisplayMode(DisplayMode mode)
-    {
-        _displayMode = mode;
-    }
+    public void SetDisplayMode(DisplayMode mode) => CurrentDisplayMode = mode;
 }
+

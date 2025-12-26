@@ -1,6 +1,6 @@
 ﻿using System.Windows.Media.Imaging;
 
-namespace SimpleViewer.Models;
+namespace SimpleViewer.Presenters;
 
 /// <summary>
 /// PresenterからUI操作を行うためのインターフェース。
