@@ -2,50 +2,80 @@
 using System.IO;
 using System.IO.Compression;
 using System.Windows.Media.Imaging;
+using System.Diagnostics;
 
-public class ArchiveImageSource : ImageSourceBase, IImageSource
+namespace SimpleViewer.Models;
+
+public class ArchiveImageSource(string zipPath) : ImageSourceBase, IImageSource
 {
-    private ZipArchive? _archive;
-    private readonly List<ZipArchiveEntry> _entries;
-    private readonly object _zipLock = new();
-
-    public ArchiveImageSource(string zipPath)
-    {
-        _archive = ZipFile.OpenRead(zipPath);
-        _entries = _archive.Entries
-            .Where(e => IsImageFile(e.FullName))
+    private readonly ZipArchive _archive = ZipFile.OpenRead(zipPath);
+    private readonly List<ZipArchiveEntry> _entries = ZipFile.OpenRead(zipPath).Entries
+            .Where(e => ImageSourceBase.IsStaticImageFile(e.FullName))
             .OrderBy(e => e.FullName, StringComparer.OrdinalIgnoreCase)
             .ToList();
-    }
+
+    private readonly object _zipLock = new();
 
     public Task<int> GetPageCountAsync() => Task.FromResult(_entries.Count);
 
-    private byte[]? GetEntryBytes(int index)
-    {
-        lock (_zipLock)
-        {
-            if (_archive == null || index < 0 || index >= _entries.Count) return null;
-            using var entryStream = _entries[index].Open();
-            using var ms = new MemoryStream();
-            entryStream.CopyTo(ms);
-            return ms.ToArray();
-        }
-    }
-
     public async Task<BitmapSource?> GetPageImageAsync(int index)
     {
-        var data = await Task.Run(() => GetEntryBytes(index));
-        return data != null ? await Task.Run(() => SkiaImageLoader.LoadImage(data)) : null;
+        if (index < 0 || index >= _entries.Count) return null;
+
+        return await Task.Run(() =>
+        {
+            try
+            {
+                byte[] data;
+                lock (_zipLock)
+                {
+                    using var entryStream = _entries[index].Open();
+                    using var ms = new MemoryStream();
+                    entryStream.CopyTo(ms);
+                    data = ms.ToArray();
+                }
+
+                var bitmap = SkiaImageLoader.LoadImage(data);
+                bitmap?.Freeze(); // キャッシュ・スレッド間共有の最適化
+                return bitmap;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Archive Load Error: {ex.Message}");
+                return null;
+            }
+        });
     }
 
     public async Task<BitmapSource?> GetThumbnailAsync(int index, int width)
     {
-        var data = await Task.Run(() => GetEntryBytes(index));
-        return data != null ? await Task.Run(() => SkiaImageLoader.LoadThumbnail(data, width)) : null;
+        if (index < 0 || index >= _entries.Count) return null;
+
+        return await Task.Run(() =>
+        {
+            try
+            {
+                byte[] data;
+                lock (_zipLock)
+                {
+                    using var entryStream = _entries[index].Open();
+                    using var ms = new MemoryStream();
+                    entryStream.CopyTo(ms);
+                    data = ms.ToArray();
+                }
+                var thumb = SkiaImageLoader.LoadThumbnail(data, width);
+                thumb?.Freeze();
+                return thumb;
+            }
+            catch { return null; }
+        });
     }
 
-    public void Dispose()
+    public override void Dispose()
     {
-        lock (_zipLock) { _archive?.Dispose(); _archive = null; }
+        _archive.Dispose();
+        _entries.Clear();
+        base.Dispose();
+        GC.SuppressFinalize(this);
     }
 }

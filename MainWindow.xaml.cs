@@ -292,7 +292,7 @@ public partial class MainWindow : Window, IView
 
     private void MenuExit_Click(object sender, RoutedEventArgs e) => this.Close();
 
-    private void MenuToggleMode_Click(object sender, RoutedEventArgs e) => _presenter.ToggleDisplayModeAsync();
+    private void MenuToggleMode_Click(object sender, RoutedEventArgs e) => _ =_presenter.ToggleDisplayModeAsync();
 
     private void MenuFitWidth_Click(object sender, RoutedEventArgs e) { _currentZoomMode = ZoomMode.FitWidth; UpdateZoomByMode(); }
 
@@ -359,8 +359,8 @@ public partial class MainWindow : Window, IView
         }
         switch (e.Key)
         {
-            case Key.Left: case Key.Space: _presenter.NextPageAsync(); e.Handled = true; break;
-            case Key.Right: case Key.Back: _presenter.PreviousPageAsync(); e.Handled = true; break;
+            case Key.Left: case Key.Space: _ = _presenter.NextPageAsync(); e.Handled = true; break;
+            case Key.Right: case Key.Back: _ = _presenter.PreviousPageAsync(); e.Handled = true; break;
             case Key.F3: MenuCatalog_Click(null!, null!); e.Handled = true; break;
             case Key.F4: MenuToggleSidebar_Click(null!, null!); e.Handled = true; break;
             case Key.S: MenuToggleMode_Click(null!, null!); e.Handled = true; break;
@@ -380,7 +380,7 @@ public partial class MainWindow : Window, IView
         }
         else if (_currentZoomMode != ZoomMode.Manual || _zoomFactor <= 1.05)
         {
-            if (e.Delta > 0) _presenter.PreviousPageAsync(); else _presenter.NextPageAsync();
+            if (e.Delta > 0) _ = _presenter.PreviousPageAsync(); else _ = _presenter.NextPageAsync();
             e.Handled = true;
         }
     }
@@ -437,7 +437,7 @@ public partial class MainWindow : Window, IView
 
     private void PageSlider_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
-        _presenter.JumpToPageAsync((int)PageSlider.Value);
+        _ = _presenter.JumpToPageAsync((int)PageSlider.Value);
         this.Focus();
     }
 

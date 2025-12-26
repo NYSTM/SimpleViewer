@@ -1,36 +1,27 @@
 ﻿using SimpleViewer.Utils;
-using System;
-using System.Collections.Generic;
 using System.IO;
-using System.Linq;
-using System.Threading.Tasks;
 using System.Windows.Media.Imaging;
+using System.Diagnostics;
 
 namespace SimpleViewer.Models;
 
-public class FolderImageSource : ImageSourceBase, IImageSource
+/// <summary>
+/// フォルダ内の画像ファイルを管理するソース。
+/// </summary>
+/// <param name="folderPath">対象フォルダのパス</param>
+public class FolderImageSource(string folderPath) : ImageSourceBase, IImageSource
 {
-    private readonly List<string> _filePaths;
-
-    public FolderImageSource(string folderPath)
-    {
-        if (!Directory.Exists(folderPath))
-        {
-            _filePaths = new List<string>();
-            return;
-        }
-
-        // 修正ポイント1: 画像ファイルの列挙とソートを確実に行う
-        _filePaths = Directory.GetFiles(folderPath)
-            .Where(path => IsImageFile(path))
+    private readonly List<string> _filePaths = Directory.Exists(folderPath)
+        ? Directory.GetFiles(folderPath)
+            .Where(IsStaticImageFile) // 基底クラスの静的メソッドを利用
             .OrderBy(path => path, new NaturalStringComparer())
-            .ToList();
-    }
+            .ToList()
+        : [];
 
     public Task<int> GetPageCountAsync() => Task.FromResult(_filePaths.Count);
 
     /// <summary>
-    /// 指定インデックスの画像をフルサイズでデコード
+    /// 指定インデックスの画像をフルサイズで非同期にロードします。
     /// </summary>
     public async Task<BitmapSource?> GetPageImageAsync(int index)
     {
@@ -40,20 +31,28 @@ public class FolderImageSource : ImageSourceBase, IImageSource
         {
             try
             {
-                // 修正ポイント2: File.ReadAllBytes を使用して SkiaImageLoader に渡す
+                // File.ReadAllBytes は内部で FileStream を適切に処理するため、
+                // ロック競合を避けつつ高速にメモリへ展開できます。
                 byte[] data = File.ReadAllBytes(_filePaths[index]);
-                return SkiaImageLoader.LoadImage(data);
+
+                var bitmap = SkiaImageLoader.LoadImage(data);
+
+                // UIスレッド以外で作成した Bitmap を、PresenterやViewで
+                // 安全かつ高速に利用するために Freeze します。
+                bitmap?.Freeze();
+
+                return bitmap;
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"FolderImageSource Error (Page): {ex.Message}");
+                Debug.WriteLine($"[FolderImageSource] Error loading page {index}: {ex.Message}");
                 return null;
             }
         });
     }
 
     /// <summary>
-    /// 指定インデックスの画像をサムネイルとしてデコード
+    /// サムネイル表示用にリサイズされた画像を非同期にロードします。
     /// </summary>
     public async Task<BitmapSource?> GetThumbnailAsync(int index, int width)
     {
@@ -63,17 +62,29 @@ public class FolderImageSource : ImageSourceBase, IImageSource
         {
             try
             {
-                // 修正ポイント3: サムネイル用のデコード時リサイズを適用
                 byte[] data = File.ReadAllBytes(_filePaths[index]);
-                return SkiaImageLoader.LoadThumbnail(data, width);
+
+                // SkiaSharp側でデコード時にリサイズを行うことでメモリ消費を抑えます。
+                var thumb = SkiaImageLoader.LoadThumbnail(data, width);
+
+                thumb?.Freeze();
+                return thumb;
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"FolderImageSource Error (Thumb): {ex.Message}");
+                Debug.WriteLine($"[FolderImageSource] Error loading thumbnail {index}: {ex.Message}");
                 return null;
             }
         });
     }
 
-    public void Dispose() { }
+    /// <summary>
+    /// ImageSourceBase.Dispose をオーバーライドしてリソースを解放します。
+    /// </summary>
+    public override void Dispose()
+    {
+        _filePaths.Clear();
+        base.Dispose();
+        GC.SuppressFinalize(this);
+    }
 }
