@@ -190,7 +190,7 @@ public partial class MainWindow : Window, IView
         for (int i = 0; i < total; i++)
         {
             if (token.IsCancellationRequested) return;
-            var thumb = await _presenter.GetThumbnailAsync(i, 160);
+            var thumb = await _presenter.GetThumbnailAsync(i, 160, token);
             if (token.IsCancellationRequested || _sidebarCts != sessionCts) return;
 
             if (thumb != null)
@@ -321,7 +321,7 @@ public partial class MainWindow : Window, IView
         for (int i = 0; i <= (int)PageSlider.Maximum; i++)
         {
             if (token.IsCancellationRequested) return;
-            var thumb = await _presenter.GetThumbnailAsync(i, 200);
+            var thumb = await _presenter.GetThumbnailAsync(i, 200, token);
             if (thumb != null)
             {
                 var item = CreateThumbnailElement(thumb, i, 180);

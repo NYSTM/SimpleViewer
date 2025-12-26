@@ -1,4 +1,5 @@
 ﻿using SimpleViewer.Models;
+using SimpleViewer.Services;
 using System.Collections.Concurrent;
 using System.Windows.Media.Imaging;
 using System.Diagnostics;
@@ -16,6 +17,9 @@ public class SimpleViewerPresenter(IView view)
     private readonly ConcurrentDictionary<int, BitmapSource> _imageCache = new();
     private const int MaxCachePages = 12; // 最大保持数
     private const long MemoryThresholdMB = 500; // 空きメモリ閾値 (MB)
+
+    // サムネイルサービス
+    private readonly ThumbnailService _thumbnailService = new();
 
     // 非同期制御
     private CancellationTokenSource? _navigationCts;
@@ -43,6 +47,7 @@ public class SimpleViewerPresenter(IView view)
         _navigationCts?.Cancel();
         _prefetchCts?.Cancel();
         _imageCache.Clear();
+        _thumbnailService.ClearCache();
         _currentSource?.Dispose();
         _currentSource = null;
         _currentPageIndex = 0;
@@ -182,11 +187,18 @@ public class SimpleViewerPresenter(IView view)
             _ => DisplayMode.Single
         };
         _imageCache.Clear();
+        _thumbnailService.ClearCache();
         await JumpToPageAsync(_currentPageIndex);
     }
 
-    public void SetDisplayMode(DisplayMode mode) => CurrentDisplayMode = mode;
+    public void SetDisplayMode(DisplayMode mode)
+    {
+        CurrentDisplayMode = mode;
+    }
 
-    public async Task<BitmapSource?> GetThumbnailAsync(int index, int width) =>
-        _currentSource == null ? null : await _currentSource.GetThumbnailAsync(index, width);
+    public async Task<BitmapSource?> GetThumbnailAsync(int index, int width, CancellationToken? token = null)
+    {
+        if (_currentSource == null) return null;
+        return await _thumbnailService.GetThumbnailAsync(_currentSource, index, width, token ?? CancellationToken.None);
+    }
 }
