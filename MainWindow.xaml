@@ -7,6 +7,49 @@
         AllowDrop="True" Drop="Window_Drop" Focusable="True">
 
     <Window.Resources>
+        <Style x:Key="ModernSliderStyle" TargetType="{x:Type Slider}">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type Slider}">
+                        <Grid>
+                            <Border x:Name="TrackBackground" Height="10" Margin="5,0" 
+                                    Background="#CCCCCC" CornerRadius="5" VerticalAlignment="Center"/>
+
+                            <Track x:Name="PART_Track">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Command="{x:Static Slider.DecreaseLarge}">
+                                        <RepeatButton.Template>
+                                            <ControlTemplate TargetType="{x:Type RepeatButton}">
+                                                <Border Background="#007ACC" Height="10" CornerRadius="5,0,0,5"/>
+                                            </ControlTemplate>
+                                        </RepeatButton.Template>
+                                    </RepeatButton>
+                                </Track.DecreaseRepeatButton>
+
+                                <Track.Thumb>
+                                    <Thumb Width="24" Height="24">
+                                        <Thumb.Template>
+                                            <ControlTemplate TargetType="{x:Type Thumb}">
+                                                <Grid>
+                                                    <Ellipse Fill="White" Stroke="#007ACC" StrokeThickness="2">
+                                                        <Ellipse.Effect>
+                                                            <DropShadowEffect BlurRadius="4" ShadowDepth="1" Opacity="0.3"/>
+                                                        </Ellipse.Effect>
+                                                    </Ellipse>
+                                                    <Ellipse Fill="#007ACC" Width="10" Height="10"/>
+                                                </Grid>
+                                            </ControlTemplate>
+                                        </Thumb.Template>
+                                    </Thumb>
+                                </Track.Thumb>
+                            </Track>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style TargetType="Menu">
             <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.MenuBarBrushKey}}"/>
             <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.MenuTextBrushKey}}"/>
@@ -44,7 +87,7 @@
             <Border DockPanel.Dock="Bottom" 
                     Background="{DynamicResource {x:Static SystemColors.ControlBrushKey}}" 
                     BorderThickness="0,1,0,0" BorderBrush="{DynamicResource {x:Static SystemColors.ActiveBorderBrushKey}}" 
-                    Padding="12,6">
+                    Padding="12,10">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="150"/>
@@ -54,7 +97,8 @@
 
                     <TextBlock x:Name="StatusText" Text="0 / 0" VerticalAlignment="Center" FontWeight="Bold"/>
 
-                    <Slider x:Name="PageSlider" Grid.Column="1" VerticalAlignment="Center" 
+                    <Slider x:Name="PageSlider" Grid.Column="1" VerticalAlignment="Center" Height="30"
+                            Style="{StaticResource ModernSliderStyle}"
                             Focusable="False" Minimum="0" IsMoveToPointEnabled="True" 
                             FlowDirection="RightToLeft" PreviewMouseLeftButtonUp="PageSlider_PreviewMouseLeftButtonUp"/>
 

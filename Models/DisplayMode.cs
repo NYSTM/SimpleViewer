@@ -8,9 +8,9 @@ public enum DisplayMode
     /// <summary> 1ページずつ表示 </summary>
     Single,
 
-    /// <summary> 右から左へ（右綴じ：マンガ等） </summary>
+    /// <summary> 右から左へ（右綴じ） </summary>
     SpreadRTL,
 
-    /// <summary> 左から右へ（左綴じ：雑誌・写真集等） </summary>
+    /// <summary> 左から右へ（左綴じ） </summary>
     SpreadLTR
 }
