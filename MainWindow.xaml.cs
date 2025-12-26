@@ -41,6 +41,7 @@ public partial class MainWindow : Window, IView
         InitializeComponent();
         _presenter = new SimpleViewerPresenter(this);
 
+        // 1. 設定の読み込みと適用
         LoadSettings();
 
         RenderOptions.SetBitmapScalingMode(ViewContainer, BitmapScalingMode.HighQuality);
@@ -48,16 +49,18 @@ public partial class MainWindow : Window, IView
 
         this.Loaded += async (s, e) =>
         {
+            // 起動時のフォーカス確保
             this.Focus();
+            Keyboard.Focus(this);
             if (!string.IsNullOrEmpty(InitialPath)) await OpenNewSourceAsync(Path.GetFullPath(InitialPath));
         };
 
+        // 2. ウィンドウを閉じる際の自動保存イベント登録
         this.Closing += (s, e) => SaveSettings();
     }
 
-    #region 設定永続化
+    #region 設定永続化 (強化版)
 
-    // MainWindow.xaml.cs の中
     private void LoadSettings()
     {
         try
@@ -65,21 +68,30 @@ public partial class MainWindow : Window, IView
             if (!File.Exists(_settingsPath)) return;
             string json = File.ReadAllText(_settingsPath);
 
-            // 型安全な読み込み
             var s = JsonSerializer.Deserialize<AppSettings>(json);
             if (s == null) return;
 
-            // DisplayMode を直接セット可能
+            // 表示モードの復元
             _presenter.SetDisplayMode(s.DisplayMode);
 
+            // ズーム設定の復元
             if (Enum.TryParse(s.ZoomMode, out ZoomMode zMode)) _currentZoomMode = zMode;
             _zoomFactor = s.ZoomFactor;
+
+            // サイドバー状態の復元
             SidebarColumn.Width = s.IsSidebarVisible ? new GridLength(200) : new GridLength(0);
+
+            // ウィンドウサイズと状態(最大化など)の復元
             this.Width = s.WindowWidth;
             this.Height = s.WindowHeight;
+            if (s.WindowState == (int)WindowState.Maximized)
+            {
+                this.WindowState = WindowState.Maximized;
+            }
+
             ApplyZoom();
         }
-        catch { /* 読み込み失敗時はデフォルト設定を使用 */ }
+        catch { /* 失敗時はデフォルトを使用 */ }
     }
 
     private void SaveSettings()
@@ -88,15 +100,19 @@ public partial class MainWindow : Window, IView
         {
             var s = new AppSettings
             {
-                DisplayMode = _presenter.CurrentDisplayMode, // そのまま代入
+                DisplayMode = _presenter.CurrentDisplayMode,
                 ZoomMode = _currentZoomMode.ToString(),
                 ZoomFactor = _zoomFactor,
                 IsSidebarVisible = SidebarColumn.Width.Value > 0,
+                WindowState = (int)this.WindowState,
+                // 最大化時は ActualWidth ではなく最後に復元可能なサイズを保持するのが理想だが、
+                // 今回はシンプルに現在の値を保存
                 WindowWidth = this.ActualWidth,
                 WindowHeight = this.ActualHeight
             };
-            // インデント付きで保存（人間が読みやすいように）
-            File.WriteAllText(_settingsPath, JsonSerializer.Serialize(s, new JsonSerializerOptions { WriteIndented = true }));
+
+            var options = new JsonSerializerOptions { WriteIndented = true };
+            File.WriteAllText(_settingsPath, JsonSerializer.Serialize(s, options));
         }
         catch { }
     }
@@ -261,7 +277,7 @@ public partial class MainWindow : Window, IView
 
     #endregion
 
-    #region メインメニュー / ボタンイベント (復元済み)
+    #region メインメニュー / ボタンイベント
 
     private async void MenuOpen_Click(object sender, RoutedEventArgs e)
     {
@@ -400,8 +416,15 @@ public partial class MainWindow : Window, IView
         if (e.Data.GetDataPresent(DataFormats.FileDrop))
         {
             var files = (string[])e.Data.GetData(DataFormats.FileDrop);
-            if (files?.Length > 0) await OpenNewSourceAsync(files[0]);
-            this.Focus();
+            if (files?.Length > 0)
+            {
+                await OpenNewSourceAsync(files[0]);
+
+                // ドロップ直後のフォーカス修正
+                this.Activate(); // ウィンドウをアクティブにする
+                this.Focus();
+                Keyboard.Focus(this);
+            }
         }
     }
 
