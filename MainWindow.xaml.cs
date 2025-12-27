@@ -9,7 +9,6 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using System.Windows.Threading;
 
 namespace SimpleViewer;
 
@@ -17,12 +16,9 @@ public partial class MainWindow : Window, IView
 {
     private readonly SimpleViewerPresenter _presenter;
     private readonly ZoomManager _zoomManager = new();
-    private readonly SettingsManager _settingsManager; // 追加
+    private readonly SettingsManager _settingsManager;
+    private readonly SidebarManager _sidebarManager;
 
-    private readonly Dictionary<int, Button> _sidebarItems = new();
-    private int _lastHighlightedIndex = -1;
-
-    private CancellationTokenSource? _sidebarCts;
     private CancellationTokenSource? _catalogCts;
 
     private Point _startPoint;
@@ -37,7 +33,15 @@ public partial class MainWindow : Window, IView
         _presenter = new SimpleViewerPresenter(this);
         _zoomManager.ZoomChanged += ZoomManager_ZoomChanged;
 
-        _settingsManager = new SettingsManager(AppDomain.CurrentDomain.BaseDirectory); // 追加
+        _settingsManager = new SettingsManager(AppDomain.CurrentDomain.BaseDirectory);
+        _sidebarManager = new SidebarManager(
+            _presenter,
+            ThumbnailSidebar,
+            Dispatcher,
+            async (pageIndex) => await _presenter.JumpToPageAsync(pageIndex),
+            () => this.Focus(),
+            (Style)FindResource(ToolBar.ButtonStyleKey)
+        );
 
         // 1. 設定の読み込みと適用
         LoadSettings();
@@ -123,13 +127,16 @@ public partial class MainWindow : Window, IView
         PageSlider.Value = current - 1;
         UpdateModeDisplay();
 
-        if (_sidebarItems.Count == 0 && total > 0)
+        if (total > 0)
         {
-            _sidebarCts?.Cancel();
-            _sidebarCts = new CancellationTokenSource();
-            _ = BuildSidebarAsync(_sidebarCts.Token);
+            // Sidebar の再構築を不要なときはスキップするため EnsureSidebarAsync を使う
+            _ = _sidebarManager.EnsureSidebarAsync(total, current - 1);
+            _sidebarManager.HighlightThumbnail(current - 1);
         }
-        HighlightCurrentThumbnail(current - 1);
+        else
+        {
+            _sidebarManager.ClearSidebar();
+        }
     }
 
     public void ShowError(string message) => MessageBox.Show(this, message, "SimpleViewer", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -158,80 +165,14 @@ public partial class MainWindow : Window, IView
         return new Size(totalW, maxH);
     }
 
-    #region サイドバー & ハイライト (セッション管理)
-
-    private async Task BuildSidebarAsync(CancellationToken token)
-    {
-        int total = (int)PageSlider.Maximum + 1;
-        var sessionCts = _sidebarCts;
-
-        for (int i = 0; i < total; i++)
-        {
-            if (token.IsCancellationRequested) return;
-            var thumb = await _presenter.GetThumbnailAsync(i, 160, token);
-            if (token.IsCancellationRequested || _sidebarCts != sessionCts) return;
-
-            if (thumb != null)
-            {
-                var item = CreateThumbnailElement(thumb, i, 150);
-                _sidebarItems[i] = item;
-                ThumbnailSidebar.Items.Add(item);
-                if (i == (int)PageSlider.Value) HighlightCurrentThumbnail(i);
-            }
-            if (i % 5 == 0) await Task.Yield();
-        }
-    }
-
-    private Button CreateThumbnailElement(BitmapSource source, int index, double width)
-    {
-        var btn = new Button
-        {
-            Content = new Image { Source = source, Width = width },
-            Tag = index,
-            Margin = new Thickness(4),
-            BorderThickness = new Thickness(3),
-            BorderBrush = Brushes.Transparent,
-            Focusable = false,
-            Style = (Style)FindResource(ToolBar.ButtonStyleKey)
-        };
-        btn.Click += async (s, _) =>
-        {
-            int idx = (int)((Button)s).Tag;
-            HighlightCurrentThumbnail(idx);
-            await _presenter.JumpToPageAsync(idx);
-            this.Focus();
-        };
-        return btn;
-    }
-
-    private void HighlightCurrentThumbnail(int index)
-    {
-        this.Dispatcher.Invoke(() =>
-        {
-            if (_lastHighlightedIndex != -1 && _sidebarItems.TryGetValue(_lastHighlightedIndex, out var oldBtn))
-                oldBtn.BorderBrush = Brushes.Transparent;
-
-            if (_sidebarItems.TryGetValue(index, out var newBtn))
-            {
-                newBtn.BorderBrush = SystemColors.HighlightBrush;
-                newBtn.BringIntoView();
-                _lastHighlightedIndex = index;
-            }
-        }, DispatcherPriority.Send);
-    }
-
-    #endregion
-
     #region 画面遷移 & 外部連携
 
     private async Task OpenNewSourceAsync(string path)
     {
         try
         {
-            _sidebarCts?.Cancel(); _catalogCts?.Cancel();
-            _sidebarItems.Clear();
-            _lastHighlightedIndex = -1;
-            ThumbnailSidebar.Items.Clear();
+            _sidebarManager.ClearSidebar();
+            _catalogCts?.Cancel();
             CatalogPanel.Children.Clear();
             CatalogOverlay.Visibility = Visibility.Collapsed;
             await _presenter.OpenSourceAsync(path);
@@ -241,10 +182,8 @@ public partial class MainWindow : Window, IView
 
     private void ClearUI()
     {
-        _sidebarCts?.Cancel(); _catalogCts?.Cancel();
-        _sidebarItems.Clear();
-        _lastHighlightedIndex = -1;
-        ThumbnailSidebar.Items.Clear();
+        _sidebarManager.ClearSidebar();
+        _catalogCts?.Cancel();
         CatalogPanel.Children.Clear();
         CatalogOverlay.Visibility = Visibility.Collapsed;
         ImageLeft.Source = null;
@@ -270,7 +209,7 @@ public partial class MainWindow : Window, IView
 
     private void MenuExit_Click(object sender, RoutedEventArgs e) => this.Close();
 
-    private void MenuToggleMode_Click(object sender, RoutedEventArgs e) => _ =_presenter.ToggleDisplayModeAsync();
+    private void MenuToggleMode_Click(object sender, RoutedEventArgs e) => _ = _presenter.ToggleDisplayModeAsync();
 
     private void MenuFitWidth_Click(object sender, RoutedEventArgs e) { _zoomManager.SetMode(ZoomMode.FitWidth, GetViewSize(), GetContentSize()); }
 
@@ -303,12 +242,34 @@ public partial class MainWindow : Window, IView
             if (thumb != null)
             {
                 var item = CreateThumbnailElement(thumb, i, 180);
-                item.Click += (s, _) => CatalogOverlay.Visibility = Visibility.Collapsed;
+                item.Click += async (s, _) => {
+                    await _presenter.JumpToPageAsync((int)((Button)s).Tag); // カタログからのページジャンプ
+                    CatalogOverlay.Visibility = Visibility.Collapsed;
+                    this.Focus(); // フォーカスも戻す
+                };
                 CatalogPanel.Children.Add(item);
             }
             if (i % 10 == 0) await Task.Yield();
         }
     }
+
+    // Catalog用のCreateThumbnailElementは残すか、同様に汎用ヘルパーに移動する
+    private Button CreateThumbnailElement(BitmapSource source, int index, double width)
+    {
+        var btn = new Button
+        {
+            Content = new Image { Source = source, Width = width },
+            Tag = index,
+            Margin = new Thickness(4),
+            BorderThickness = new Thickness(3),
+            BorderBrush = Brushes.Transparent,
+            Focusable = false,
+            Style = (Style)FindResource(ToolBar.ButtonStyleKey) // サイドバーと同じスタイルを使用
+        };
+        // クリックイベントはMenuCatalog_Click内で設定し直すため、ここでは設定しない
+        return btn;
+    }
+
 
     private void CloseCatalog_Click(object sender, RoutedEventArgs e)
     {
@@ -341,7 +302,7 @@ public partial class MainWindow : Window, IView
             case Key.Right: case Key.Back: _ = _presenter.PreviousPageAsync(); e.Handled = true; break;
             case Key.F3: MenuCatalog_Click(null!, null!); e.Handled = true; break;
             case Key.F4: MenuToggleSidebar_Click(null!, null!); e.Handled = true; break;
-            case Key.S: MenuToggleMode_Click(null!, null!); e.Handled = true; break;
+            case Key.S: MenuToggleMode_Click(null!, null!); e.Handled = true; return;
             case Key.Escape:
                 if (CatalogOverlay.Visibility == Visibility.Visible) CloseCatalog_Click(null!, null!);
                 else _zoomManager.ResetZoom();
@@ -414,6 +375,7 @@ public partial class MainWindow : Window, IView
     private void MainScrollViewer_SizeChanged(object sender, SizeChangedEventArgs e)
     {
         _zoomManager.UpdateZoom(GetViewSize(), GetContentSize());
+        // サイドバーのズームはZoomManagerが処理するため、サイズ変更時に再度BuildSidebarAsyncを呼ぶ必要はない
     }
 
     private void PageSlider_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
