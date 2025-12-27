@@ -3,14 +3,13 @@ using SimpleViewer.Models;
 using SimpleViewer.Presenters;
 using SimpleViewer.Utils;
 using System.IO;
-using System.Text.Json;
-using System.Windows.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 
 namespace SimpleViewer;
 
@@ -18,6 +17,7 @@ public partial class MainWindow : Window, IView
 {
     private readonly SimpleViewerPresenter _presenter;
     private readonly ZoomManager _zoomManager = new();
+    private readonly SettingsManager _settingsManager; // 追加
 
     private readonly Dictionary<int, Button> _sidebarItems = new();
     private int _lastHighlightedIndex = -1;
@@ -29,15 +29,15 @@ public partial class MainWindow : Window, IView
     private double _scrollHorizontalOffset;
     private double _scrollVerticalOffset;
 
-    private readonly string _settingsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "settings.json");
-
     public string? InitialPath { get; set; }
 
     public MainWindow()
     {
         InitializeComponent();
         _presenter = new SimpleViewerPresenter(this);
-        _zoomManager.ZoomChanged += ZoomManager_ZoomChanged; // 追加
+        _zoomManager.ZoomChanged += ZoomManager_ZoomChanged;
+
+        _settingsManager = new SettingsManager(AppDomain.CurrentDomain.BaseDirectory); // 追加
 
         // 1. 設定の読み込みと適用
         LoadSettings();
@@ -61,60 +61,46 @@ public partial class MainWindow : Window, IView
 
     private void LoadSettings()
     {
-        try
+        // try-catch の代わりに SettingsManager 内で処理
+        var s = _settingsManager.LoadSettings();
+
+        // 表示モードの復元
+        _presenter.SetDisplayMode(s.DisplayMode);
+
+        // ズーム設定の復元
+        ZoomMode restoredMode = ZoomMode.Manual;
+        if (Enum.TryParse(s.ZoomMode, out ZoomMode zMode))
         {
-            if (!File.Exists(_settingsPath)) return;
-            string json = File.ReadAllText(_settingsPath);
-
-            var s = JsonSerializer.Deserialize<AppSettings>(json);
-            if (s == null) return;
-
-            // 表示モードの復元
-            _presenter.SetDisplayMode(s.DisplayMode);
-
-            // ズーム設定の復元
-            ZoomMode restoredMode = ZoomMode.Manual;
-            if (Enum.TryParse(s.ZoomMode, out ZoomMode zMode))
-            {
-                restoredMode = zMode;
-            }
-            _zoomManager.SetZoom(s.ZoomFactor, restoredMode); // 変更
-
-            // サイドバー状態の復元
-            SidebarColumn.Width = s.IsSidebarVisible ? new GridLength(200) : new GridLength(0);
-
-            // ウィンドウサイズと状態(最大化など)の復元
-            this.Width = s.WindowWidth;
-            this.Height = s.WindowHeight;
-            if (s.WindowState == (int)WindowState.Maximized)
-            {
-                this.WindowState = WindowState.Maximized;
-            }
+            restoredMode = zMode;
         }
-        catch { /* 失敗時はデフォルトを使用 */ }
+        _zoomManager.SetZoom(s.ZoomFactor, restoredMode);
+
+        // サイドバー状態の復元
+        SidebarColumn.Width = s.IsSidebarVisible ? new GridLength(200) : new GridLength(0);
+
+        // ウィンドウサイズと状態(最大化など)の復元
+        this.Width = s.WindowWidth;
+        this.Height = s.WindowHeight;
+        if (s.WindowState == (int)WindowState.Maximized)
+        {
+            this.WindowState = WindowState.Maximized;
+        }
     }
 
     private void SaveSettings()
     {
-        try
+        var s = new AppSettings
         {
-            var s = new AppSettings
-            {
-                DisplayMode = _presenter.CurrentDisplayMode,
-                ZoomMode = _zoomManager.CurrentMode.ToString(), // 変更
-                ZoomFactor = _zoomManager.ZoomFactor,           // 変更
-                IsSidebarVisible = SidebarColumn.Width.Value > 0,
-                WindowState = (int)this.WindowState,
-                // 最大化時は ActualWidth ではなく最後に復元可能なサイズを保持するのが理想だが、
-                // 今回はシンプルに現在の値を保存
-                WindowWidth = this.ActualWidth,
-                WindowHeight = this.ActualHeight
-            };
+            DisplayMode = _presenter.CurrentDisplayMode,
+            ZoomMode = _zoomManager.CurrentMode.ToString(),
+            ZoomFactor = _zoomManager.ZoomFactor,
+            IsSidebarVisible = SidebarColumn.Width.Value > 0,
+            WindowState = (int)this.WindowState,
+            WindowWidth = this.ActualWidth,
+            WindowHeight = this.ActualHeight
+        };
 
-            var options = new JsonSerializerOptions { WriteIndented = true };
-            File.WriteAllText(_settingsPath, JsonSerializer.Serialize(s, options));
-        }
-        catch { }
+        _settingsManager.SaveSettings(s);
     }
 
     #endregion
@@ -286,9 +272,9 @@ public partial class MainWindow : Window, IView
 
     private void MenuToggleMode_Click(object sender, RoutedEventArgs e) => _ =_presenter.ToggleDisplayModeAsync();
 
-    private void MenuFitWidth_Click(object sender, RoutedEventArgs e) { _zoomManager.SetMode(ZoomMode.FitWidth, GetViewSize(), GetContentSize()); } // 変更
+    private void MenuFitWidth_Click(object sender, RoutedEventArgs e) { _zoomManager.SetMode(ZoomMode.FitWidth, GetViewSize(), GetContentSize()); }
 
-    private void MenuFitPage_Click(object sender, RoutedEventArgs e) { _zoomManager.SetMode(ZoomMode.FitPage, GetViewSize(), GetContentSize()); } // 変更
+    private void MenuFitPage_Click(object sender, RoutedEventArgs e) { _zoomManager.SetMode(ZoomMode.FitPage, GetViewSize(), GetContentSize()); }
 
     private void MenuResetZoom_Click(object sender, RoutedEventArgs e) => _zoomManager.ResetZoom();
 
