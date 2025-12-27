@@ -1,8 +1,10 @@
 ﻿using Microsoft.Win32;
 using SimpleViewer.Models;
 using SimpleViewer.Presenters;
+using SimpleViewer.Utils;
 using System.IO;
 using System.Text.Json;
+using System.Windows.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -15,11 +17,7 @@ namespace SimpleViewer;
 public partial class MainWindow : Window, IView
 {
     private readonly SimpleViewerPresenter _presenter;
-    private double _zoomFactor = 1.0;
-    private const double ZoomStep = 0.1;
-
-    private enum ZoomMode { Manual, FitWidth, FitPage }
-    private ZoomMode _currentZoomMode = ZoomMode.Manual;
+    private readonly ZoomManager _zoomManager = new();
 
     private readonly Dictionary<int, Button> _sidebarItems = new();
     private int _lastHighlightedIndex = -1;
@@ -39,6 +37,7 @@ public partial class MainWindow : Window, IView
     {
         InitializeComponent();
         _presenter = new SimpleViewerPresenter(this);
+        _zoomManager.ZoomChanged += ZoomManager_ZoomChanged; // 追加
 
         // 1. 設定の読み込みと適用
         LoadSettings();
@@ -74,8 +73,12 @@ public partial class MainWindow : Window, IView
             _presenter.SetDisplayMode(s.DisplayMode);
 
             // ズーム設定の復元
-            if (Enum.TryParse(s.ZoomMode, out ZoomMode zMode)) _currentZoomMode = zMode;
-            _zoomFactor = s.ZoomFactor;
+            ZoomMode restoredMode = ZoomMode.Manual;
+            if (Enum.TryParse(s.ZoomMode, out ZoomMode zMode))
+            {
+                restoredMode = zMode;
+            }
+            _zoomManager.SetZoom(s.ZoomFactor, restoredMode); // 変更
 
             // サイドバー状態の復元
             SidebarColumn.Width = s.IsSidebarVisible ? new GridLength(200) : new GridLength(0);
@@ -87,8 +90,6 @@ public partial class MainWindow : Window, IView
             {
                 this.WindowState = WindowState.Maximized;
             }
-
-            ApplyZoom();
         }
         catch { /* 失敗時はデフォルトを使用 */ }
     }
@@ -100,8 +101,8 @@ public partial class MainWindow : Window, IView
             var s = new AppSettings
             {
                 DisplayMode = _presenter.CurrentDisplayMode,
-                ZoomMode = _currentZoomMode.ToString(),
-                ZoomFactor = _zoomFactor,
+                ZoomMode = _zoomManager.CurrentMode.ToString(), // 変更
+                ZoomFactor = _zoomManager.ZoomFactor,           // 変更
                 IsSidebarVisible = SidebarColumn.Width.Value > 0,
                 WindowState = (int)this.WindowState,
                 // 最大化時は ActualWidth ではなく最後に復元可能なサイズを保持するのが理想だが、
@@ -126,7 +127,7 @@ public partial class MainWindow : Window, IView
         ImageRight.Source = right;
         ImageRight.Visibility = (right == null) ? Visibility.Collapsed : Visibility.Visible;
         MainScrollViewer.ScrollToHome();
-        UpdateZoomByMode();
+        _zoomManager.UpdateZoom(GetViewSize(), GetContentSize());
     }
 
     public void UpdateProgress(int current, int total)
@@ -148,37 +149,28 @@ public partial class MainWindow : Window, IView
     public void ShowError(string message) => MessageBox.Show(this, message, "SimpleViewer", MessageBoxButton.OK, MessageBoxImage.Warning);
 
     #endregion
-
-    #region ズーム制御
-
-    private void UpdateZoomByMode()
+    // ZoomManagerのZoomChangedイベントハンドラ
+    private void ZoomManager_ZoomChanged(object? sender, EventArgs e)
     {
-        if (ImageLeft.Source == null || MainScrollViewer.ActualWidth <= 0) { ApplyZoom(); return; }
+        ViewContainer.LayoutTransform = new ScaleTransform(_zoomManager.ZoomFactor, _zoomManager.ZoomFactor);
+        ZoomText.Text = _zoomManager.GetZoomText();
+    }
+
+    // ZoomManagerに渡すビューサイズを取得するヘルパーメソッド
+    private Size GetViewSize()
+    {
+        return new Size(MainScrollViewer.ActualWidth - 4, MainScrollViewer.ActualHeight - 4);
+    }
+
+    // ZoomManagerに渡すコンテンツサイズを取得するヘルパーメソッド
+    private Size GetContentSize()
+    {
+        if (ImageLeft.Source == null) return new Size(0, 0);
 
         double totalW = ImageLeft.Source.Width + (ImageRight.Visibility == Visibility.Visible ? (ImageRight.Source?.Width ?? 0) : 0);
         double maxH = Math.Max(ImageLeft.Source.Height, ImageRight.Visibility == Visibility.Visible ? (ImageRight.Source?.Height ?? 0) : 0);
-
-        double viewW = MainScrollViewer.ActualWidth - 4;
-        double viewH = MainScrollViewer.ActualHeight - 4;
-
-        if (_currentZoomMode == ZoomMode.FitWidth) _zoomFactor = viewW / totalW;
-        else if (_currentZoomMode == ZoomMode.FitPage) _zoomFactor = Math.Min(viewW / totalW, viewH / maxH);
-
-        ApplyZoom();
+        return new Size(totalW, maxH);
     }
-
-    private void ApplyZoom()
-    {
-        ViewContainer.LayoutTransform = new ScaleTransform(_zoomFactor, _zoomFactor);
-        string suffix = _currentZoomMode switch { ZoomMode.FitWidth => " (幅)", ZoomMode.FitPage => " (全)", _ => "" };
-        ZoomText.Text = $"{(_zoomFactor * 100):0}%{suffix}";
-    }
-
-    private void ZoomIn() { _currentZoomMode = ZoomMode.Manual; _zoomFactor = Math.Min(_zoomFactor + ZoomStep, 10.0); ApplyZoom(); }
-    private void ZoomOut() { _currentZoomMode = ZoomMode.Manual; _zoomFactor = Math.Max(_zoomFactor - ZoomStep, 0.1); ApplyZoom(); }
-    private void ResetZoom() { _currentZoomMode = ZoomMode.Manual; _zoomFactor = 1.0; ApplyZoom(); }
-
-    #endregion
 
     #region サイドバー & ハイライト (セッション管理)
 
@@ -239,7 +231,7 @@ public partial class MainWindow : Window, IView
                 newBtn.BringIntoView();
                 _lastHighlightedIndex = index;
             }
-        }, System.Windows.Threading.DispatcherPriority.Send);
+        }, DispatcherPriority.Send);
     }
 
     #endregion
@@ -294,15 +286,15 @@ public partial class MainWindow : Window, IView
 
     private void MenuToggleMode_Click(object sender, RoutedEventArgs e) => _ =_presenter.ToggleDisplayModeAsync();
 
-    private void MenuFitWidth_Click(object sender, RoutedEventArgs e) { _currentZoomMode = ZoomMode.FitWidth; UpdateZoomByMode(); }
+    private void MenuFitWidth_Click(object sender, RoutedEventArgs e) { _zoomManager.SetMode(ZoomMode.FitWidth, GetViewSize(), GetContentSize()); } // 変更
 
-    private void MenuFitPage_Click(object sender, RoutedEventArgs e) { _currentZoomMode = ZoomMode.FitPage; UpdateZoomByMode(); }
+    private void MenuFitPage_Click(object sender, RoutedEventArgs e) { _zoomManager.SetMode(ZoomMode.FitPage, GetViewSize(), GetContentSize()); } // 変更
 
-    private void MenuResetZoom_Click(object sender, RoutedEventArgs e) => ResetZoom();
+    private void MenuResetZoom_Click(object sender, RoutedEventArgs e) => _zoomManager.ResetZoom();
 
-    private void MenuZoomIn_Click(object sender, RoutedEventArgs e) => ZoomIn();
+    private void MenuZoomIn_Click(object sender, RoutedEventArgs e) => _zoomManager.ZoomIn();
 
-    private void MenuZoomOut_Click(object sender, RoutedEventArgs e) => ZoomOut();
+    private void MenuZoomOut_Click(object sender, RoutedEventArgs e) => _zoomManager.ZoomOut();
 
     private void MenuToggleSidebar_Click(object sender, RoutedEventArgs e)
     {
@@ -350,11 +342,11 @@ public partial class MainWindow : Window, IView
             {
                 case Key.O: MenuOpen_Click(null!, null!); e.Handled = true; return;
                 case Key.W: MenuClose_Click(null!, null!); e.Handled = true; return;
-                case Key.F: MenuFitWidth_Click(null!, null!); e.Handled = true; return;
-                case Key.G: MenuFitPage_Click(null!, null!); e.Handled = true; return;
-                case Key.D0: case Key.NumPad0: ResetZoom(); e.Handled = true; return;
-                case Key.OemPlus: case Key.Add: ZoomIn(); e.Handled = true; return;
-                case Key.OemMinus: case Key.Subtract: ZoomOut(); e.Handled = true; return;
+                case Key.F: _zoomManager.SetMode(ZoomMode.FitWidth, GetViewSize(), GetContentSize()); e.Handled = true; return;
+                case Key.G: _zoomManager.SetMode(ZoomMode.FitPage, GetViewSize(), GetContentSize()); e.Handled = true; return;
+                case Key.D0: case Key.NumPad0: _zoomManager.ResetZoom(); e.Handled = true; return;
+                case Key.OemPlus: case Key.Add: _zoomManager.ZoomIn(); e.Handled = true; return;
+                case Key.OemMinus: case Key.Subtract: _zoomManager.ZoomOut(); e.Handled = true; return;
             }
         }
         switch (e.Key)
@@ -366,7 +358,7 @@ public partial class MainWindow : Window, IView
             case Key.S: MenuToggleMode_Click(null!, null!); e.Handled = true; break;
             case Key.Escape:
                 if (CatalogOverlay.Visibility == Visibility.Visible) CloseCatalog_Click(null!, null!);
-                else ResetZoom();
+                else _zoomManager.ResetZoom();
                 e.Handled = true; break;
         }
     }
@@ -375,10 +367,10 @@ public partial class MainWindow : Window, IView
     {
         if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
         {
-            if (e.Delta > 0) ZoomIn(); else ZoomOut();
+            if (e.Delta > 0) _zoomManager.ZoomIn(); else _zoomManager.ZoomOut();
             e.Handled = true;
         }
-        else if (_currentZoomMode != ZoomMode.Manual || _zoomFactor <= 1.05)
+        else if (_zoomManager.CurrentMode != ZoomMode.Manual || _zoomManager.ZoomFactor <= 1.05)
         {
             if (e.Delta > 0) _ = _presenter.PreviousPageAsync(); else _ = _presenter.NextPageAsync();
             e.Handled = true;
@@ -433,7 +425,10 @@ public partial class MainWindow : Window, IView
         return false;
     }
 
-    private void MainScrollViewer_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateZoomByMode();
+    private void MainScrollViewer_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        _zoomManager.UpdateZoom(GetViewSize(), GetContentSize());
+    }
 
     private void PageSlider_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
