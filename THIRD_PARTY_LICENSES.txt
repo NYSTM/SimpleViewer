@@ -1,0 +1,52 @@
+THIRD-PARTY LICENSES
+Generated: 2025-01-01
+
+This file lists third-party NuGet packages used by SimpleViewer and their license information.
+Please verify the exact license texts from the package distribution or project repository before redistribution.
+
+Packages:
+
+1) Microsoft.IO.RecyclableMemoryStream 2.0.0
+   - NuGet: https://www.nuget.org/packages/Microsoft.IO.RecyclableMemoryStream/2.0.0
+   - License: MIT
+   - License file: licenses/Microsoft.IO.RecyclableMemoryStream_LICENSE.txt
+
+2) SkiaSharp 3.119.1
+   - NuGet: https://www.nuget.org/packages/SkiaSharp/3.119.1
+   - License: MIT
+   - License file: licenses/SkiaSharp_LICENSE.txt
+
+3) SkiaSharp.Views.WPF 3.119.1
+   - NuGet: https://www.nuget.org/packages/SkiaSharp.Views.WPF/3.119.1
+   - License: MIT
+   - License file: licenses/SkiaSharp.Views.WPF_LICENSE.txt
+
+4) SkiaSharp.NativeAssets.Win32 3.119.1 (transitive)
+   - NuGet: https://www.nuget.org/packages/SkiaSharp.NativeAssets.Win32/3.119.1
+   - License: MIT (native Skia binaries may have separate notices)
+   - License file: licenses/SkiaSharp.NativeAssets.Win32_LICENSE.txt
+
+5) SkiaSharp.Views.Desktop.Common 3.119.1 (transitive)
+   - NuGet: https://www.nuget.org/packages/SkiaSharp.Views.Desktop.Common/3.119.1
+   - License: MIT
+   - License file: licenses/SkiaSharp.Views.Desktop.Common_LICENSE.txt
+
+6) VirtualizingWrapPanel 2.3.2
+   - NuGet: https://www.nuget.org/packages/VirtualizingWrapPanel/2.3.2
+   - License: MIT
+   - License file: licenses/VirtualizingWrapPanel_LICENSE.txt
+
+7) OpenTK (transitive)
+   - If present as transitive dependency, verify actual package names and include their license files if required.
+
+Notes and recommended next steps:
+- These license files were copied into the `licenses/` directory. Please verify their contents against the authoritative package distributions and include any NOTICE files required by Apache-2.0 packages.
+- If any package is Apache-2.0, include any required NOTICE content in your distribution.
+- If any package uses GPL/LGPL, consult legal/OSS policy before redistribution ? these licenses may impose source-distribution obligations.
+
+Suggested distribution layout:
+- LICENSE.txt (project's MIT license)
+- THIRD_PARTY_LICENSES.txt (this file)
+- licenses/ (directory containing individual LICENSE or NOTICE files for each third-party package)
+
+Disclaimer: This file is generated automatically and does not substitute for a legal review. Always verify license texts from authoritative sources and consult legal counsel for distribution decisions.

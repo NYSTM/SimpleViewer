@@ -6,12 +6,45 @@
 		<Nullable>enable</Nullable>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<UseWPF>true</UseWPF>
+		<ApplicationIcon>SimpleViewer.ico</ApplicationIcon>
+		<PackageIcon>SimpleViewer.png</PackageIcon>
+		<PackageReadmeFile>README.md</PackageReadmeFile>
+		<PackageLicenseFile>LICENSE.txt</PackageLicenseFile>
+		<Authors>NYSTM</Authors>
 	</PropertyGroup>
+
+	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
+	  <DebugType>portable</DebugType>
+	</PropertyGroup>
+
+	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
+		<DebugType>none</DebugType>
+	</PropertyGroup>
+
+	<ItemGroup>
+	  <Content Include="SimpleViewer.ico" />
+	</ItemGroup>
 
 	<ItemGroup>
 	  <PackageReference Include="SkiaSharp" Version="3.119.1" />
 	  <PackageReference Include="SkiaSharp.Views.WPF" Version="3.119.1" />
 	  <PackageReference Include="VirtualizingWrapPanel" Version="2.3.2" />
+	  <PackageReference Include="Microsoft.IO.RecyclableMemoryStream" Version="2.0.0" />
+	</ItemGroup>
+
+	<ItemGroup>
+	  <None Update="LICENSE.txt">
+	    <Pack>True</Pack>
+	    <PackagePath>\</PackagePath>
+	  </None>
+	  <None Update="README.md">
+	    <Pack>True</Pack>
+	    <PackagePath>\</PackagePath>
+	  </None>
+	  <None Update="SimpleViewer.png">
+	    <Pack>True</Pack>
+	    <PackagePath>\</PackagePath>
+	  </None>
 	</ItemGroup>
 
 </Project>

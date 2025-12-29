@@ -6,18 +6,28 @@
         Foreground="{DynamicResource {x:Static SystemColors.WindowTextBrushKey}}"
         AllowDrop="True" Drop="Window_Drop" Focusable="True">
 
+    <!--
+        MainWindow.xaml の説明
+        - このウィンドウはシンプルなイメージビューアのメイン UI を構成します。
+        - 上部にメニュー、下部にステータスバー（スライダー含む）、左にサイドバー、
+          右にメインのイメージ表示領域（スクロール可能）を配置しています。
+    -->
+
     <Window.Resources>
+        <!-- モダンスライダーのスタイル定義 -->
         <Style x:Key="ModernSliderStyle" TargetType="{x:Type Slider}">
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="{x:Type Slider}">
                         <Grid>
+                            <!-- スライダーのトラック背景 -->
                             <Border x:Name="TrackBackground" Height="10" Margin="5,0" 
                                     Background="#CCCCCC" CornerRadius="5" VerticalAlignment="Center"/>
 
                             <Track x:Name="PART_Track">
                                 <Track.DecreaseRepeatButton>
+                                    <!-- トラック減少側のビジュアル -->
                                     <RepeatButton Command="{x:Static Slider.DecreaseLarge}">
                                         <RepeatButton.Template>
                                             <ControlTemplate TargetType="{x:Type RepeatButton}">
@@ -28,6 +38,7 @@
                                 </Track.DecreaseRepeatButton>
 
                                 <Track.Thumb>
+                                    <!-- スライダーつまみ（サム）のテンプレート -->
                                     <Thumb Width="24" Height="24">
                                         <Thumb.Template>
                                             <ControlTemplate TargetType="{x:Type Thumb}">
@@ -50,6 +61,7 @@
             </Setter>
         </Style>
 
+        <!-- メニュー全体とメニューアイテムの基本スタイル -->
         <Style TargetType="Menu">
             <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.MenuBarBrushKey}}"/>
             <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.MenuTextBrushKey}}"/>
@@ -64,6 +76,7 @@
     <Grid x:Name="RootGrid">
         <DockPanel LastChildFill="True">
 
+            <!-- アプリ上部のメニュー -->
             <Menu DockPanel.Dock="Top">
                 <MenuItem Header="ファイル(_F)">
                     <MenuItem Header="開く(_O)..." Click="MenuOpen_Click" InputGestureText="Ctrl+O"/>
@@ -84,6 +97,7 @@
                 </MenuItem>
             </Menu>
 
+            <!-- ステータスバーとページナビゲーション -->
             <Border DockPanel.Dock="Bottom" 
                     Background="{DynamicResource {x:Static SystemColors.ControlBrushKey}}" 
                     BorderThickness="0,1,0,0" BorderBrush="{DynamicResource {x:Static SystemColors.ActiveBorderBrushKey}}" 
@@ -95,15 +109,19 @@
                         <ColumnDefinition Width="300"/>
                     </Grid.ColumnDefinitions>
 
+                    <!-- 現在のページ表示（例: 1 / 10） -->
                     <TextBlock x:Name="StatusText" Text="0 / 0" VerticalAlignment="Center" FontWeight="Bold"/>
 
+                    <!-- ページ移動用スライダー -->
                     <Slider x:Name="PageSlider" Grid.Column="1" VerticalAlignment="Center" Height="30"
                             Style="{StaticResource ModernSliderStyle}"
                             Focusable="False" Minimum="0" IsMoveToPointEnabled="True" 
                             FlowDirection="RightToLeft" PreviewMouseLeftButtonUp="PageSlider_PreviewMouseLeftButtonUp"/>
 
                     <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right">
+                        <!-- 現在の表示モード（単一表示、見開きなど） -->
                         <TextBlock x:Name="ModeText" Text="単一表示" VerticalAlignment="Center" Margin="0,0,15,0" FontWeight="Bold"/>
+                        <!-- ズーム表示（クリックでリセット） -->
                         <Button Click="MenuResetZoom_Click" Background="Transparent" BorderBrush="Transparent" Cursor="Hand">
                             <TextBlock x:Name="ZoomText" Text="100%" Width="80" TextAlignment="Right" VerticalAlignment="Center"/>
                         </Button>
@@ -113,26 +131,50 @@
 
             <Grid>
                 <Grid.ColumnDefinitions>
+                    <!-- サイドバー列（サムネイルやツリー） -->
                     <ColumnDefinition x:Name="SidebarColumn" Width="200" MinWidth="0"/>
                     <ColumnDefinition Width="4"/>
+                    <!-- メイン表示エリア -->
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
 
+                <!-- 左側サイドバー（タブコントロールでサムネとツリーを切替） -->
                 <Border Grid.Column="0" Background="{DynamicResource {x:Static SystemColors.ControlLightLightBrushKey}}" 
                         BorderBrush="{DynamicResource {x:Static SystemColors.ActiveBorderBrushKey}}" BorderThickness="0,0,1,0">
-                    <ScrollViewer VerticalScrollBarVisibility="Auto">
-                        <ItemsControl x:Name="ThumbnailSidebar">
-                            <ItemsControl.ItemsPanel>
-                                <ItemsPanelTemplate>
-                                    <VirtualizingStackPanel IsVirtualizing="True" VirtualizationMode="Recycling"/>
-                                </ItemsPanelTemplate>
-                            </ItemsControl.ItemsPanel>
-                        </ItemsControl>
-                    </ScrollViewer>
+                    <TabControl>
+                        <TabItem Header="サムネイル">
+                            <!--
+                                ItemsControl は仮想化を有効にするために外側の ScrollViewer を除去し、
+                                内部に CanContentScroll=True の ScrollViewer を用意しています。
+                            -->
+                            <ItemsControl x:Name="ThumbnailSidebar" ScrollViewer.VerticalScrollBarVisibility="Auto">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <VirtualizingStackPanel IsVirtualizing="True" VirtualizationMode="Recycling"/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.Template>
+                                    <ControlTemplate TargetType="ItemsControl">
+                                        <Border Background="Transparent">
+                                            <ScrollViewer CanContentScroll="True" VerticalScrollBarVisibility="Auto">
+                                                <ItemsPresenter/>
+                                            </ScrollViewer>
+                                        </Border>
+                                    </ControlTemplate>
+                                </ItemsControl.Template>
+                            </ItemsControl>
+                        </TabItem>
+                        <TabItem Header="ツリー">
+                            <!-- フォルダやファイル構成を表示するツリービュー -->
+                            <TreeView x:Name="SidebarTreeView" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Auto"/>
+                        </TabItem>
+                    </TabControl>
                 </Border>
 
+                <!-- 列の区切り（ドラッグでサイズ変更可能） -->
                 <GridSplitter Grid.Column="1" HorizontalAlignment="Stretch" Background="Transparent"/>
 
+                <!-- メイン表示領域：スクロール可能で中央に画像を配置 -->
                 <ScrollViewer x:Name="MainScrollViewer" Grid.Column="2" Background="Black" 
                               HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
                               SizeChanged="MainScrollViewer_SizeChanged"
@@ -141,6 +183,7 @@
                               MouseMove="MainScrollViewer_MouseMove"
                               PreviewMouseLeftButtonUp="MainScrollViewer_MouseLeftButtonUp">
                     <Grid x:Name="ViewContainer" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <!-- 横並びで2つの Image を配置（見開き表示対応） -->
                         <StackPanel Orientation="Horizontal">
                             <Image x:Name="ImageLeft" Stretch="None" RenderOptions.BitmapScalingMode="HighQuality"/>
                             <Image x:Name="ImageRight" Stretch="None" RenderOptions.BitmapScalingMode="HighQuality"/>
@@ -150,6 +193,7 @@
             </Grid>
         </DockPanel>
 
+        <!-- カタログオーバーレイ（表示/非表示を切替） -->
         <Grid x:Name="CatalogOverlay" Visibility="Collapsed" Background="#F2000000">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
@@ -162,6 +206,7 @@
                 </Grid>
             </Border>
             <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                <!-- カタログのサムネイルを WrapPanel に追加 -->
                 <WrapPanel x:Name="CatalogPanel" HorizontalAlignment="Center" Margin="20"/>
             </ScrollViewer>
         </Grid>
