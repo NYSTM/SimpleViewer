@@ -201,12 +201,6 @@ public class SkiaImageProcessor
         int orientation = ReadOrientationIfEnabled(stream);
         if (stream.CanSeek) stream.Position = originalPosition;
 
-        using var codec = SKCodec.Create(stream);
-        if (codec == null) return null;
-
-        // SKCodec.Createがストリームを消費するため、位置をリセット
-        if (stream.CanSeek) stream.Position = originalPosition;
-
         var scaledBitmap = _bitmapDecoder.DecodeScaledBitmap(stream, targetWidth);
         if (scaledBitmap == null)
         {
@@ -215,7 +209,7 @@ public class SkiaImageProcessor
             return DecodeFullImage(stream);
         }
 
-        int targetHeight = (int)(codec.Info.Height * ((double)targetWidth / codec.Info.Width));
+        int targetHeight = (int)((double)scaledBitmap.Height * targetWidth / scaledBitmap.Width);
         var finalBitmap = _bitmapDecoder.ResizeBitmap(scaledBitmap, targetWidth, targetHeight);
         
         if (finalBitmap != scaledBitmap)

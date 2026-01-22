@@ -8,6 +8,7 @@ EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "ソリューション項目", "ソリューション項目", "{2022CB0F-8BAF-F49E-0C48-8EF4C96EC109}"
 	ProjectSection(SolutionItems) = preProject
 		.editorconfig = .editorconfig
+		README.md = README.md
 	EndProjectSection
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SimpleExifLib", "SimpleExifLib\SimpleExifLib.csproj", "{7B603A8D-A9D1-BF46-61C3-DEA70FCF9DA3}"
