@@ -1,0 +1,44 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net8.0-windows</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+		<AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+		<PackageReadmeFile>README.md</PackageReadmeFile>
+		<PackageLicenseFile>LICENSE.txt</PackageLicenseFile>
+		<Authors>NYSTM</Authors>
+	</PropertyGroup>
+
+	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
+		<DebugType>portable</DebugType>
+	</PropertyGroup>
+
+	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
+		<DebugType>none</DebugType>
+	</PropertyGroup>
+	<!--
+    テストやベンチマーク用のソースがメインプロジェクトに含まれないよう明示的に除外する。
+    サブフォルダ直下と再帰的なパターンの両方を除外対象に追加しています。
+  -->
+	<ItemGroup>
+		<Compile Remove="SimpleExifLib.Tests\**\*.cs" />
+		<Compile Remove="SimpleExifLib.Tests\*.cs" />
+		<Compile Remove="Benchmarks\**\*.cs" />
+		<Compile Remove="Benchmarks\*.cs" />
+		<Compile Remove="Tests\**\*.cs" />
+		<Compile Remove="Tests\*.cs" />
+	</ItemGroup>
+	<ItemGroup>
+		<None Update="LICENSE.txt">
+			<Pack>True</Pack>
+			<PackagePath>\</PackagePath>
+		</None>
+		<None Update="README.md">
+			<Pack>True</Pack>
+			<PackagePath>\</PackagePath>
+		</None>
+	</ItemGroup>
+
+</Project>

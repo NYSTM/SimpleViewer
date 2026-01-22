@@ -1,0 +1,22 @@
+{
+  // EXIF読み取り設定ファイル (JSON形式)
+  // 各フィールドの読み取り可否を true/false で指定します
+  
+  "CameraMake": true,
+  "CameraModel": true,
+  "DateTimeOriginal": true,
+  "Orientation": true,
+  "Width": false,
+  "Height": false,
+  "FNumber": false,
+  "ExposureTime": true,
+  "IsoSpeed": true,
+  "FocalLength": true,
+  
+  // 追加で抽出するEXIFタグのリスト
+  // 10進数または "0x" で始まる16進数で指定できます
+  "AdditionalTags": [
+    "0x9286",  // UserComment
+    "0xA434"   // LensModel
+  ]
+}

@@ -3,7 +3,18 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.14.36705.20
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SimpleViewer", "SimpleViewer.csproj", "{C3EDAACD-AA6A-4836-943B-CB382C5924DF}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SimpleViewer", "SimpleViewer\SimpleViewer.csproj", "{C3EDAACD-AA6A-4836-943B-CB382C5924DF}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "ソリューション項目", "ソリューション項目", "{2022CB0F-8BAF-F49E-0C48-8EF4C96EC109}"
+	ProjectSection(SolutionItems) = preProject
+		.editorconfig = .editorconfig
+	EndProjectSection
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SimpleExifLib", "SimpleExifLib\SimpleExifLib.csproj", "{7B603A8D-A9D1-BF46-61C3-DEA70FCF9DA3}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SimpleExifLib.Tests", "SimpleExifLib.Tests\SimpleExifLib.Tests.csproj", "{AD2FFB95-121E-388F-410A-4D31CEBD14A4}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SimpleExifLib.Benchmarks", "SimpleExifLib.Benchmarks\SimpleExifLib.Benchmarks.csproj", "{0E405398-6781-D074-4071-BECEF5C93F86}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -15,6 +26,18 @@ Global
 		{C3EDAACD-AA6A-4836-943B-CB382C5924DF}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{C3EDAACD-AA6A-4836-943B-CB382C5924DF}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{C3EDAACD-AA6A-4836-943B-CB382C5924DF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7B603A8D-A9D1-BF46-61C3-DEA70FCF9DA3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7B603A8D-A9D1-BF46-61C3-DEA70FCF9DA3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7B603A8D-A9D1-BF46-61C3-DEA70FCF9DA3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7B603A8D-A9D1-BF46-61C3-DEA70FCF9DA3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{AD2FFB95-121E-388F-410A-4D31CEBD14A4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AD2FFB95-121E-388F-410A-4D31CEBD14A4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AD2FFB95-121E-388F-410A-4D31CEBD14A4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AD2FFB95-121E-388F-410A-4D31CEBD14A4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0E405398-6781-D074-4071-BECEF5C93F86}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0E405398-6781-D074-4071-BECEF5C93F86}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0E405398-6781-D074-4071-BECEF5C93F86}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0E405398-6781-D074-4071-BECEF5C93F86}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
