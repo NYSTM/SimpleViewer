@@ -1,10 +1,9 @@
-﻿using System.Diagnostics;
+﻿using SimpleViewer.Models.Imaging.Decoders;
+using System.Diagnostics;
 using System.IO;
-using System.Linq;
 using System.Windows.Media.Imaging;
 using Windows.Data.Pdf;
 using Windows.Storage.Streams;
-using SimpleViewer.Models.Imaging.Decoders;
 
 namespace SimpleViewer.Models.ImageSources;
 

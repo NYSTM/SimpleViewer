@@ -1,5 +1,5 @@
-﻿using System.IO;
-using SimpleViewer.Models.Imaging.Decoders;
+﻿using SimpleViewer.Models.Imaging.Decoders;
+using System.IO;
 
 namespace SimpleViewer.Models.ImageSources;
 

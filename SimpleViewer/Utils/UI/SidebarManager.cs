@@ -1,11 +1,11 @@
-﻿using SimpleViewer.Presenters;
+﻿using SimpleViewer.Models.Configuration;
+using SimpleViewer.Presenters;
 using SimpleViewer.Presenters.Controllers;
 using SimpleViewer.Utils.Trees;
-using SimpleViewer.Models.Configuration;
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
-using System.Diagnostics;
 
 namespace SimpleViewer.Utils.UI
 {

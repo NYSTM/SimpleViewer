@@ -1,11 +1,9 @@
 ﻿using Microsoft.Win32;
 using SimpleViewer.Presenters;
-using SimpleViewer.Presenters.Handlers;
 using SimpleViewer.Utils.UI;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 
 namespace SimpleViewer;

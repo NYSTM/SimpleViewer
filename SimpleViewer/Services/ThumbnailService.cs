@@ -1,6 +1,5 @@
 ﻿using SimpleViewer.Models.ImageSources;
 using SimpleViewer.Models.Imaging.Decoders;
-using SimpleViewer.Models.Configuration;
 using SimpleViewer.Utils.Configuration;
 using System.Collections.Concurrent;
 using System.Diagnostics;

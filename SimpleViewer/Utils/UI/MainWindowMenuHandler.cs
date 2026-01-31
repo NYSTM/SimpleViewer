@@ -1,6 +1,5 @@
 ﻿using SimpleViewer.Models;
 using SimpleViewer.Presenters;
-using SimpleViewer.Presenters.Controllers;
 using System.Windows;
 
 namespace SimpleViewer.Utils.UI;

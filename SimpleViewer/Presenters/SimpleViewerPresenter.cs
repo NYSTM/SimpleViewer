@@ -100,7 +100,6 @@ public class SimpleViewerPresenter
 
         // キャッシュの解放
         imageCache.Clear();
-        thumbnailService.ClearAllCache();
 
         // ディスクキャッシュのクリアはバックグラウンドで実行
         _ = Task.Run(async () =>

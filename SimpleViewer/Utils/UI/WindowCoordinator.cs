@@ -1,10 +1,10 @@
 ﻿using SimpleViewer.Models;
 using SimpleViewer.Models.Configuration;
+using SimpleViewer.Models.Imaging.Decoders;
 using SimpleViewer.Presenters;
 using SimpleViewer.Presenters.Controllers;
 using SimpleViewer.Presenters.Handlers;
 using SimpleViewer.Services;
-using SimpleViewer.Models.Imaging.Decoders;
 using SimpleViewer.Utils.Configuration;
 using System.Diagnostics;
 using System.Windows;

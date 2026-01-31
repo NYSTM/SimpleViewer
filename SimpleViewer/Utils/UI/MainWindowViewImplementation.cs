@@ -1,8 +1,6 @@
 ﻿using SimpleViewer.Presenters;
-using SimpleViewer.Presenters.Controllers;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
 using System.Windows.Media.Imaging;
 
 namespace SimpleViewer.Utils.UI;

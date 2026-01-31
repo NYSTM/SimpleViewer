@@ -1,9 +1,8 @@
-﻿using System.Diagnostics;
+﻿using SimpleViewer.Models.Imaging.Decoders;
+using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
-using System.Linq;
 using System.Windows.Media.Imaging;
-using SimpleViewer.Models.Imaging.Decoders;
 
 namespace SimpleViewer.Models.ImageSources;
 

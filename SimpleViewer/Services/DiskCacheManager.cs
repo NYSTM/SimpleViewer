@@ -100,21 +100,48 @@ public class DiskCacheManager
     {
         return Task.Run(() =>
         {
+            string[] targetFiles;
             lock (_diskLock)
             {
+                var di = new DirectoryInfo(_cacheDirectory);
+                if (!di.Exists) return;
+
+                // GetFiles("*.thumb") は呼び出した瞬間に配列を生成するため、
+                // これ以降に作成されたファイルはリストに含まれない（保護される）。
+                targetFiles = di.GetFiles("*.thumb")
+                                .Select(f => f.FullName)
+                                .ToArray();
+            }
+
+            // lockの外で実行することで、ファイルシステムへの負荷を分散し、UI応答性も維持する
+            foreach (var filePath in targetFiles)
+            {
+                // 高速なキャンセレーション
+                if (ct.IsCancellationRequested) break;
+
                 try
                 {
-                    var di = new DirectoryInfo(_cacheDirectory);
-                    if (!di.Exists) return;
-
-                    foreach (var f in di.GetFiles("*.thumb"))
-                    {
-                        ct.ThrowIfCancellationRequested();
-                        DeleteFile(f.FullName);
-                    }
+                    // 別のスレッドが使用中の場合は IOException が発生するが、
+                    // catchして続行することで「消せるものだけ全部消す」一括処理を実現
+                    DeleteFile(filePath);
                 }
-                catch (OperationCanceledException) { throw; }
-                catch { /* 無視 */ }
+                catch (IOException)
+                {
+                    // 使用中のファイルは無視して次に進む
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    // 権限エラーも同様
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    // 予期せぬエラーは診断用に記録
+                    Console.WriteLine($"Delete failed: {filePath}, {ex.Message}");
+                }
             }
         }, ct);
     }

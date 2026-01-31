@@ -1,6 +1,5 @@
-﻿using SimpleViewer.Models.Configuration;
-using SimpleViewer.Models;
-using SimpleViewer.Presenters;
+﻿using SimpleViewer.Models;
+using SimpleViewer.Models.Configuration;
 using SimpleViewer.Utils.Configuration;
 using SimpleViewer.Utils.UI;
 using System.Windows;

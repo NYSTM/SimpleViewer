@@ -1,8 +1,8 @@
 ﻿using SimpleViewer.Models.Imaging.Decoders;
 using SimpleViewer.Utils.Comparers;
+using System.Diagnostics;
 using System.IO;
 using System.Windows.Media.Imaging;
-using System.Diagnostics;
 
 namespace SimpleViewer.Models.ImageSources;
 

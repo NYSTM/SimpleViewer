@@ -1,6 +1,5 @@
-﻿using System;
+﻿using SimpleViewer.Models;
 using System.Windows;
-using SimpleViewer.Models;
 
 namespace SimpleViewer.Utils.UI
 {

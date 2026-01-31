@@ -1,6 +1,4 @@
 ﻿using SimpleViewer.Presenters;
-using SimpleViewer.Utils.Trees;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 

@@ -1,8 +1,8 @@
-﻿using System.Diagnostics;
+﻿using SimpleViewer.Utils.Comparers;
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
-using SimpleViewer.Utils.Comparers;
 
 namespace SimpleViewer.Utils.Trees
 {

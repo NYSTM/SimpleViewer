@@ -1,7 +1,6 @@
 ﻿using SimpleViewer.Models.Imaging.Decoders;
-using SimpleViewer.Models;
-using System.Windows.Media.Imaging;
 using System.IO;
+using System.Windows.Media.Imaging;
 
 namespace SimpleViewer.Services;
 

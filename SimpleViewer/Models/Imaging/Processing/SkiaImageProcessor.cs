@@ -1,9 +1,9 @@
-﻿using SimpleViewer.Models.Imaging.Decoders;
+﻿using Microsoft.IO;
+using SimpleExifLib;
+using SimpleViewer.Models.Imaging.Decoders;
 using SkiaSharp;
 using System.IO;
 using System.Windows.Media.Imaging;
-using Microsoft.IO;
-using SimpleExifLib;
 
 namespace SimpleViewer.Models.Imaging.Processing;
 

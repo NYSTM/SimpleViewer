@@ -1,6 +1,5 @@
-﻿using System.IO;
+﻿using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using System.Windows.Media;
 
 namespace SimpleViewer.Models.Imaging.Processing;
 
