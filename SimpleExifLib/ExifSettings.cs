@@ -59,11 +59,37 @@ namespace SimpleExifLib
         public IList<int> AdditionalTagIds { get; } = new List<int>();
 
         /// <summary>
+        /// キャッシュされた設定インスタンス。
+        /// 遅延初期化により、最初のアクセス時に1回だけロードされます。
+        /// </summary>
+        private static readonly Lazy<ExifSettings> _cached = new(() => LoadInternal());
+
+        /// <summary>
+        /// キャッシュされた設定インスタンスを取得します。
+        /// 最初の呼び出し時に1回だけファイルから読み込まれ、以降はキャッシュされた値を返します。
+        /// </summary>
+        public static ExifSettings Default => _cached.Value;
+
+        /// <summary>
         /// 設定ファイルから読み込み、ExifSettings を返す。
-        /// ファイルが存在しない場合は既定値の設定を返す。
-        /// JSON形式のみサポート。
+        /// 後方互換性のために残していますが、通常は Default プロパティを使用してください。
         /// </summary>
         public static ExifSettings Load(string? fileName = null)
+        {
+            // ファイル名が指定されている場合は毎回ロード（後方互換性）
+            if (!string.IsNullOrEmpty(fileName))
+            {
+                return LoadInternal(fileName);
+            }
+            
+            // ファイル名が指定されていない場合はキャッシュを使用
+            return Default;
+        }
+
+        /// <summary>
+        /// 設定ファイルから読み込む内部実装。
+        /// </summary>
+        private static ExifSettings LoadInternal(string? fileName = null)
         {
             var settings = new ExifSettings();
             try

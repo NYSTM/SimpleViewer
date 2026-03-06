@@ -9,7 +9,20 @@ namespace SimpleExifLib
     internal static class IfdProcessor
     {
         /// <summary>
+        /// IFD エントリ数の妥当な上限値。
+        /// 悪意のあるファイルで極端に大きな値が指定されることを防ぎます。
+        /// </summary>
+        private const int MaxIfdEntries = 10000;
+
+        /// <summary>
+        /// 再帰の最大深さ。
+        /// 悪意のあるファイルで無限再帰やスタックオーバーフローを防ぎます。
+        /// </summary>
+        private const int MaxRecursionDepth = 10;
+
+        /// <summary>
         /// 指定された IFD のエントリを列挙してコールバックを呼び出す。
+        /// エントリ数に上限を設けることで、悪意のあるファイルからの攻撃を防ぎます。
         /// </summary>
         /// <param name="span">TIFF データ全体のバイト配列。</param>
         /// <param name="ifdOffset">IFD の開始オフセット。</param>
@@ -19,6 +32,10 @@ namespace SimpleExifLib
         {
             if (ifdOffset + 2 > span.Length) return;
             var entryCount = TiffBinaryReader.ReadUInt16(span, (int)ifdOffset, isLittleEndian);
+            
+            // エントリ数の上限チェックで悪意のあるファイルを防ぐ
+            if (entryCount > MaxIfdEntries) return;
+            
             var offset = ifdOffset + 2;
             
             for (int i = 0; i < entryCount; i++)
@@ -37,11 +54,16 @@ namespace SimpleExifLib
 
         /// <summary>
         /// 指定 IFD の直後に配置される NextIFD オフセットを取得する。
+        /// エントリ数に上限を設けることで、悪意のあるファイルからの攻撃を防ぎます。
         /// </summary>
         public static uint GetNextIfdOffset(byte[] span, uint ifdOffset, bool isLittleEndian)
         {
             if (ifdOffset + 2 > span.Length) return 0;
             var entryCount = TiffBinaryReader.ReadUInt16(span, (int)ifdOffset, isLittleEndian);
+            
+            // エントリ数の上限チェックで悪意のあるファイルを防ぐ
+            if (entryCount > MaxIfdEntries) return 0;
+            
             var nextIfdPos = ifdOffset + 2 + (uint)(entryCount * 12);
             if (nextIfdPos + 4 > span.Length) return 0;
             return TiffBinaryReader.ReadUInt32(span, (int)nextIfdPos, isLittleEndian);
@@ -49,9 +71,21 @@ namespace SimpleExifLib
 
         /// <summary>
         /// 指定 IFD から開始して NextIFD 連鎖を辿りつつ tags 内のタグを収集する。
+        /// 再帰深さ制限により、悪意のあるファイルからのスタックオーバーフローを防ぎます。
         /// </summary>
         public static void CollectTagsRecursive(byte[] span, uint startIfdOffset, bool isLittleEndian, IList<int> tags, ExifData exif)
         {
+            CollectTagsRecursiveInternal(span, startIfdOffset, isLittleEndian, tags, exif, depth: 0);
+        }
+
+        /// <summary>
+        /// 再帰深さを追跡する内部実装。
+        /// </summary>
+        private static void CollectTagsRecursiveInternal(byte[] span, uint startIfdOffset, bool isLittleEndian, IList<int> tags, ExifData exif, int depth)
+        {
+            // 再帰深さ制限チェック
+            if (depth >= MaxRecursionDepth) return;
+
             var visited = new HashSet<uint>();
             uint currentIfd = startIfdOffset;
             
@@ -64,7 +98,7 @@ namespace SimpleExifLib
                     // サブIFDポインタを検出して再帰走査
                     if (tag == 0x8769 && valueOrOffset != 0 && valueOrOffset < span.Length)
                     {
-                        CollectTagsRecursive(span, valueOrOffset, isLittleEndian, tags, exif);
+                        CollectTagsRecursiveInternal(span, valueOrOffset, isLittleEndian, tags, exif, depth + 1);
                     }
 
                     if (!tags.Contains((int)tag)) return;

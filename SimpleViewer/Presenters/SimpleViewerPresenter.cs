@@ -91,6 +91,7 @@ public class SimpleViewerPresenter
     /// <summary>
     /// 現在のソースを閉じ、関連するタスクやキャッシュをクリアします。
     /// 非同期のディスクキャッシュ削除はバックグラウンドで実行されます。
+    /// メモリは .NET の GC によって自動的に管理されます。
     /// </summary>
     public void CloseSource()
     {
@@ -111,9 +112,6 @@ public class SimpleViewerPresenter
         currentSource?.Dispose();
         currentSource = null;
         _navigationManager.Reset();
-
-        // メモリ確保のため軽く GC を促す（頻繁に呼ばないこと）
-        GC.Collect();
     }
 
     /// <summary>

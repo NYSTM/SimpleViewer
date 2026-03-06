@@ -25,7 +25,7 @@ namespace SimpleExifLib
             if (stream == null) throw new ArgumentNullException(nameof(stream));
             if (!stream.CanSeek) throw new ArgumentException("ストリームはシーク可能である必要があります", nameof(stream));
 
-            var settings = ExifSettings.Load();
+            var settings = ExifSettings.Default;
             stream.Seek(0, SeekOrigin.Begin);
 
             using var br = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true);

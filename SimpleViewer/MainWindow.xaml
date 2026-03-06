@@ -148,19 +148,19 @@
                     <TabControl>
                         <TabItem Header="サムネイル">
                             <!--
-                                ItemsControl は仮想化を有効にするために外側の ScrollViewer を除去し、
-                                内部に CanContentScroll=True の ScrollViewer を用意しています。
+                                ItemsControl のスクロールを物理スクロール（ピクセル単位）に設定。
+                                大量のサムネイルでも安定動作するよう、仮想化は控えめに設定。
                             -->
                             <ItemsControl x:Name="ThumbnailSidebar" ScrollViewer.VerticalScrollBarVisibility="Auto">
                                 <ItemsControl.ItemsPanel>
                                     <ItemsPanelTemplate>
-                                        <VirtualizingStackPanel IsVirtualizing="True" VirtualizationMode="Recycling"/>
+                                        <StackPanel/>
                                     </ItemsPanelTemplate>
                                 </ItemsControl.ItemsPanel>
                                 <ItemsControl.Template>
                                     <ControlTemplate TargetType="ItemsControl">
                                         <Border Background="Transparent">
-                                            <ScrollViewer CanContentScroll="True" VerticalScrollBarVisibility="Auto">
+                                            <ScrollViewer CanContentScroll="False" VerticalScrollBarVisibility="Auto">
                                                 <ItemsPresenter/>
                                             </ScrollViewer>
                                         </Border>

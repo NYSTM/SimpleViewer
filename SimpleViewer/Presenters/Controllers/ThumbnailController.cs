@@ -29,8 +29,10 @@ public class ThumbnailController
 
     // サイドバー内の Button を保持（インデックス -> Button）
     private readonly Dictionary<int, Button> _sidebarItems = new();
-    // 最後にハイライトされたインデックス
+    // 現在ハイライト表示中のインデックス（UI スレッド専用）
     private int _lastHighlightedIndex = -1;
+    // 最新のハイライト要求インデックス（Interlocked で書き込み、UIスレッドで読み込む）
+    private volatile int _pendingHighlightIndex = -1;
 
     // Build/Refresh 用のキャンセル制御
     private CancellationTokenSource? _buildCts;
@@ -38,6 +40,13 @@ public class ThumbnailController
     // 直近に構築したページ数と幅（部分更新判定用）
     private int _builtTotalPages = 0;
     private double _builtWidth = 0.0;
+
+    // 並列処理のバッチサイズ（より大きく設定してスループット向上）
+    private const int BatchSize = 16;
+
+    // スクロール処理のデバウンス用
+    private DateTime _lastScrollTime = DateTime.MinValue;
+    private const int ScrollDebounceMs = 100;
 
     /// <summary>
     /// コンストラクタ: 必要な依存を注入して初期化します。
@@ -61,36 +70,38 @@ public class ThumbnailController
     /// <summary>
     /// サムネイル領域を構築します（部分更新対応）。
     /// 既に同じ総ページ数で構築済みであれば再構築を避け、必要な差分のみ更新します。
+    /// バッチ処理と非同期 UI 更新により、大量の画像でも応答性を維持します。
     /// </summary>
     /// <param name="totalPages">総ページ数</param>
     /// <param name="currentPageIndex">現在ページのインデックス（0 始まり）</param>
     /// <param name="desiredWidth">希望するサムネイル幅（ピクセル）</param>
     public async Task BuildAsync(int totalPages, int currentPageIndex, double desiredWidth)
     {
-        _buildCts?.Cancel();
-        _buildCts = new CancellationTokenSource();
-        var token = _buildCts.Token;
-
         try
         {
             // 部分更新条件: 既に同じ総ページ数で構築済み
             if (_builtTotalPages == totalPages && _builtTotalPages > 0)
             {
-                // 幅が変わった場合は既存アイテムの画像だけ差し替える
-                // 既に生成済みのサムネイルが要求幅以上であれば再取得は不要。
-                // デジカメやスキャナ画像は元画像幅が固定のことが多いため、
-                // 小さい幅への変更は既存サムネイルで十分対応できる。
-                // よって、要求幅がこれまでの構築幅より大きい場合のみ再取得する。
                 if (desiredWidth > _builtWidth + 1.0)
                 {
+                    // 幅が変わった場合のみキャンセルして再構築
+                    _buildCts?.Cancel();
+                    _buildCts = new CancellationTokenSource();
+                    var token = _buildCts.Token;
+                    
                     await RefreshAsync((int)Math.Round(desiredWidth), token).ConfigureAwait(false);
                     _builtWidth = desiredWidth;
                 }
 
-                // ハイライトだけ更新して終了
+                // ページ移動だけの場合はハイライトのみ更新（キャンセルしない）
                 Highlight(currentPageIndex);
                 return;
             }
+
+            // 初回構築または総ページ数変更時のみキャンセル
+            _buildCts?.Cancel();
+            _buildCts = new CancellationTokenSource();
+            var token2 = _buildCts.Token;
 
             // 既存アイテムがある場合は差分更新を行う
             if (_sidebarItems.Count > 0)
@@ -101,41 +112,20 @@ public class ThumbnailController
                     var toRemove = _sidebarItems.Keys.Where(k => k >= totalPages).OrderByDescending(k => k).ToList();
                     foreach (var idx in toRemove)
                     {
-                        token.ThrowIfCancellationRequested();
+                        token2.ThrowIfCancellationRequested();
                         if (_sidebarItems.TryGetValue(idx, out var btn))
                         {
-                            _dispatcher.Invoke(() => _thumbnailSidebar.Items.Remove(btn));
+                            await _dispatcher.InvokeAsync(() => _thumbnailSidebar.Items.Remove(btn), DispatcherPriority.Background);
                             _sidebarItems.Remove(idx);
                         }
                     }
                 }
 
                 // 既存数から不足分を追加
-                int startAdd = 0;
-                if (_sidebarItems.Count > 0) startAdd = _sidebarItems.Keys.Max() + 1;
+                int startAdd = _sidebarItems.Count > 0 ? _sidebarItems.Keys.Max() + 1 : 0;
                 startAdd = Math.Max(startAdd, 0);
 
-                _buildCts = new CancellationTokenSource();
-                token = _buildCts.Token;
-
-                for (int i = startAdd; i < totalPages; i++)
-                {
-                    token.ThrowIfCancellationRequested();
-                    var thumb = await _presenter.GetThumbnailAsync(i, (int)Math.Round(desiredWidth), token).ConfigureAwait(false);
-                    token.ThrowIfCancellationRequested();
-                    if (thumb != null)
-                    {
-                        // UI 要素は UI スレッドで生成・追加する
-                        _dispatcher.Invoke(() =>
-                        {
-                            var item = CreateThumbnailElement(thumb, i, desiredWidth);
-                            _thumbnailSidebar.Items.Add(item);
-                            _sidebarItems[i] = item;
-                        });
-                    }
-
-                    if (i % 5 == 0) await Task.Yield();
-                }
+                await BuildThumbnailsBatchAsync(startAdd, totalPages, (int)Math.Round(desiredWidth), currentPageIndex, token2).ConfigureAwait(false);
 
                 _builtTotalPages = totalPages;
                 _builtWidth = desiredWidth;
@@ -147,81 +137,230 @@ public class ThumbnailController
             Clear();
 
             _buildCts = new CancellationTokenSource();
-            token = _buildCts.Token;
+            var token3 = _buildCts.Token;
 
-            for (int i = 0; i < totalPages; i++)
-            {
-                token.ThrowIfCancellationRequested();
-
-                var thumb = await _presenter.GetThumbnailAsync(i, (int)Math.Round(desiredWidth), token).ConfigureAwait(false);
-
-                token.ThrowIfCancellationRequested();
-
-                if (thumb != null)
-                {
-                    // UI 要素は UI スレッドで生成・追加する
-                    _dispatcher.Invoke(() =>
-                    {
-                        var item = CreateThumbnailElement(thumb, i, desiredWidth);
-                        _thumbnailSidebar.Items.Add(item);
-                        _sidebarItems[i] = item;
-
-                        if (i == currentPageIndex)
-                        {
-                            Highlight(i);
-                        }
-                    });
-                }
-
-                // 大量ページの際に UI スレッドの応答性を保つ
-                if (i % 5 == 0) await Task.Yield();
-            }
+            await BuildThumbnailsBatchAsync(0, totalPages, (int)Math.Round(desiredWidth), currentPageIndex, token3).ConfigureAwait(false);
 
             _builtTotalPages = totalPages;
             _builtWidth = desiredWidth;
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException)
+        {
+            Debug.WriteLine($"[BuildAsync] キャンセルされました");
+        }
         catch (Exception ex)
         {
-            Debug.WriteLine($"ThumbnailController.BuildAsync Error: {ex.Message}");
+            Debug.WriteLine($"[BuildAsync] エラー: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// サムネイルをバッチ処理で並列生成します。
+    /// UI の応答性を維持しながら効率的にサムネイルを生成します。
+    /// UI 更新はバッチ単位でまとめて行い、ユーザー入力の応答性を維持します。
+    /// </summary>
+    private async Task BuildThumbnailsBatchAsync(int startIndex, int endIndex, int width, int currentPageIndex, CancellationToken token)
+    {
+        for (int batchStart = startIndex; batchStart < endIndex; batchStart += BatchSize)
+        {
+            token.ThrowIfCancellationRequested();
+
+            int batchEnd = Math.Min(batchStart + BatchSize, endIndex);
+            var batchIndices = Enumerable.Range(batchStart, batchEnd - batchStart).ToArray();
+
+            // バッチ内で並列にサムネイルを取得
+            var tasks = batchIndices.Select(async i =>
+            {
+                try
+                {
+                    var thumb = await _presenter.GetThumbnailAsync(i, width, token).ConfigureAwait(false);
+                    return (Index: i, Thumbnail: thumb, Success: true);
+                }
+                catch (OperationCanceledException)
+                {
+                    // キャンセル時は Success=false でマーク（ログ出力なし）
+                    return (Index: i, Thumbnail: (BitmapSource?)null, Success: false);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[BuildThumbnailsBatchAsync] サムネイル取得エラー index={i}: {ex.Message}");
+                    return (Index: i, Thumbnail: (BitmapSource?)null, Success: true);
+                }
+            });
+
+            var results = await Task.WhenAll(tasks).ConfigureAwait(false);
+
+            // キャンセルされたタスクがある場合は中断
+            if (results.Any(r => !r.Success))
+            {
+                token.ThrowIfCancellationRequested();
+            }
+
+            // バッチ結果をまとめて UI に追加（1回の Invoke でバッチ全体を処理）
+            var validResults = results
+                .Where(r => r.Thumbnail != null)
+                .OrderBy(r => r.Index)
+                .ToList();
+
+            if (validResults.Count > 0)
+            {
+                try
+                {
+                    await _dispatcher.InvokeAsync(() =>
+                    {
+                        Button? highlightedBtn = null;
+                        
+                        foreach (var (index, thumb, _) in validResults)
+                        {
+                            var item = CreateThumbnailElement(thumb!, index, width);
+                            _thumbnailSidebar.Items.Add(item);
+                            _sidebarItems[index] = item;
+
+                            // アイテム追加時点での最新ハイライト要求を参照して適用
+                            if (index == _pendingHighlightIndex)
+                            {
+                                // 以前のハイライトを解除
+                                if (_lastHighlightedIndex != index &&
+                                    _lastHighlightedIndex != -1 &&
+                                    _sidebarItems.TryGetValue(_lastHighlightedIndex, out var oldBtn))
+                                {
+                                    oldBtn.BorderBrush = Brushes.Transparent;
+                                }
+                                item.BorderBrush = SystemColors.HighlightBrush;
+                                _lastHighlightedIndex = index;
+                                highlightedBtn = item;
+                            }
+                        }
+                        
+                        // ハイライトしたアイテムがあればスクロール
+                        if (highlightedBtn != null)
+                        {
+                            var btnToScroll = highlightedBtn;
+                            _ = _dispatcher.InvokeAsync(() => 
+                            {
+                                // スクロール時点でも最新要求と一致し、ボタンがロード済みの場合のみ実行
+                                if (_lastHighlightedIndex == (int)btnToScroll.Tag && btnToScroll.IsLoaded)
+                                {
+                                    TryScrollIntoView(btnToScroll);
+                                }
+                            }, DispatcherPriority.Loaded);
+                        }
+                    }, DispatcherPriority.Normal, token);
+                }
+                catch (OperationCanceledException)
+                {
+                    // UI更新中にキャンセルされた場合は静かに終了
+                    return;
+                }
+            }
+
+            // バッチごとに少し待機して UI スレッドに処理時間を譲る
+            try
+            {
+                await Task.Delay(5, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // 待機中のキャンセルは静かに終了
+                return;
+            }
         }
     }
 
     /// <summary>
     /// 指定インデックスのサムネイルをハイライト表示します。
-    /// UI 更新は Dispatcher で実行されます。
+    /// 高速スクロール中に連続して呼ばれた場合でも、最後の要求が確実に反映されます。
+    /// アイテムがまだ追加されていない場合は _pendingHighlightIndex に記録し、
+    /// BuildThumbnailsBatchAsync 内でアイテム追加時に適用されます。
     /// </summary>
     /// <param name="index">ハイライトするページのインデックス（0 始まり）</param>
     public void Highlight(int index)
     {
-        _ = _dispatcher.BeginInvoke(() =>
+        // 最新の要求を記録（volatile により UI スレッド外からの書き込みも安全）
+        _pendingHighlightIndex = index;
+
+        // UI スレッドから呼ばれた場合は、即座にハイライトを更新
+        if (_dispatcher.CheckAccess())
         {
-            // 以前のハイライト解除
-            if (_lastHighlightedIndex != -1 && _sidebarItems.TryGetValue(_lastHighlightedIndex, out var oldBtn))
-                oldBtn.BorderBrush = Brushes.Transparent;
+            PerformHighlight(index);
+        }
+        else
+        {
+            // UI スレッド外から呼ばれた場合は InvokeAsync
+            _ = _dispatcher.InvokeAsync(() => PerformHighlight(index), DispatcherPriority.Normal);
+        }
+    }
 
-            if (_sidebarItems.TryGetValue(index, out var currentBtn))
+    /// <summary>
+    /// ハイライト更新の実際の処理（UI スレッドで実行される前提）
+    /// </summary>
+    private void PerformHighlight(int index)
+    {
+        // Invoke 到達時点での最新要求を取得
+        int target = _pendingHighlightIndex;
+
+        // 要求が変わっている場合は何もしない（より新しい要求が後から処理される）
+        if (target != index) return;
+
+        // 以前のハイライト解除（対象が変わっている場合のみ）
+        if (_lastHighlightedIndex != target &&
+            _lastHighlightedIndex != -1 &&
+            _sidebarItems.TryGetValue(_lastHighlightedIndex, out var oldBtn))
+        {
+            oldBtn.BorderBrush = Brushes.Transparent;
+        }
+
+        if (_sidebarItems.TryGetValue(target, out var currentBtn))
+        {
+            // ターゲットのアイテムが既に存在する場合
+            currentBtn.BorderBrush = SystemColors.HighlightBrush;
+            _lastHighlightedIndex = target;
+
+            // スクロールは低優先度で後から実行
+            var btnForScroll = currentBtn;
+            _ = _dispatcher.InvokeAsync(() => 
             {
-                currentBtn.BorderBrush = SystemColors.HighlightBrush;
+                if (_pendingHighlightIndex == target && btnForScroll.IsLoaded)
+                {
+                    TryScrollIntoView(btnForScroll);
+                }
+            }, DispatcherPriority.Loaded);
+        }
+        else
+        {
+            // アイテムがまだ作成されていない場合、最も近い既存アイテムにスクロール
+            _lastHighlightedIndex = target;
 
-                // 可視化を試みる
-                TryScrollIntoView(currentBtn);
+            if (_sidebarItems.Count > 0)
+            {
+                var nearestIndex = _sidebarItems.Keys
+                    .OrderBy(k => Math.Abs(k - target))
+                    .FirstOrDefault();
 
-                _lastHighlightedIndex = index;
+                if (_sidebarItems.TryGetValue(nearestIndex, out var nearestBtn))
+                {
+                    var btnForScroll = nearestBtn;
+                    _ = _dispatcher.InvokeAsync(() =>
+                    {
+                        if (_pendingHighlightIndex == target && btnForScroll.IsLoaded)
+                        {
+                            TryScrollIntoView(btnForScroll);
+                        }
+                    }, DispatcherPriority.Loaded);
+                }
             }
-
-            // レイアウト更新を強制（ハイライト適用後に実行）
-            _thumbnailSidebar.UpdateLayout();
-        }, DispatcherPriority.Normal);
+        }
     }
 
     /// <summary>
     /// サムネイル領域をクリアします。ビルド中のタスクがあればキャンセルします。
+    /// UI 操作は同期的に実行してタイミング問題を回避します。
     /// </summary>
     public void Clear()
     {
         _buildCts?.Cancel();
         _buildCts = null;
+        _pendingHighlightIndex = -1;
 
         _dispatcher.Invoke(() =>
         {
@@ -254,19 +393,34 @@ public class ThumbnailController
             Focusable = false,
             Style = _thumbnailButtonStyle
         };
-        btn.Click += async (s, _) =>
+        
+        // クリックイベント: 即座にハイライトを更新し、ページジャンプは非同期で実行
+        btn.Click += async (s, e) =>
         {
-            int idx = (int)((Button)s).Tag;
+            int idx = (int)((Button)s!).Tag;
+            
+            // 即座にハイライトを更新（UI フィードバック）
             Highlight(idx);
-            await _jumpToPageCallback.Invoke(idx);
-            _focusWindowCallback?.Invoke();
+            
+            // ページジャンプを非同期で実行
+            try
+            {
+                await _jumpToPageCallback.Invoke(idx);
+                _focusWindowCallback?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[CreateThumbnailElement] ページジャンプエラー: {ex.Message}");
+            }
         };
+        
         return btn;
     }
 
     /// <summary>
     /// 既存サムネイルの画像を希望幅に合わせて再取得します。
-    /// 呼び出し元でキャンセル可能なトークンを渡してください。
+    /// バッチ処理で並列に取得して応答性を維持します。
+    /// UI 更新はバッチ単位でまとめて行い、ユーザー入力の応答性を維持します。
     /// </summary>
     /// <param name="width">再取得する幅</param>
     /// <param name="token">キャンセルトークン</param>
@@ -275,26 +429,56 @@ public class ThumbnailController
         try
         {
             var indices = _sidebarItems.Keys.ToList();
-            foreach (var idx in indices)
+            
+            // バッチ処理で並列に取得
+            for (int batchStart = 0; batchStart < indices.Count; batchStart += BatchSize)
             {
                 token.ThrowIfCancellationRequested();
-                var thumb = await _presenter.GetThumbnailAsync(idx, width, token).ConfigureAwait(false);
-                token.ThrowIfCancellationRequested();
-                if (thumb != null && _sidebarItems.TryGetValue(idx, out var btn))
+
+                var batchIndices = indices.Skip(batchStart).Take(BatchSize).ToArray();
+                
+                var tasks = batchIndices.Select(async idx =>
                 {
-                    _dispatcher.Invoke(() =>
+                    try
                     {
-                        if (btn.Content is Image img)
+                        var thumb = await _presenter.GetThumbnailAsync(idx, width, token).ConfigureAwait(false);
+                        return (Index: idx, Thumbnail: thumb);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        return (Index: idx, Thumbnail: (BitmapSource?)null);
+                    }
+                });
+
+                var results = await Task.WhenAll(tasks).ConfigureAwait(false);
+
+                // バッチ結果をまとめて UI に反映（1回の Invoke でバッチ全体を処理）
+                var validResults = results.Where(r => r.Thumbnail != null).ToList();
+                
+                if (validResults.Count > 0)
+                {
+                    await _dispatcher.InvokeAsync(() =>
+                    {
+                        foreach (var (idx, thumb) in validResults)
                         {
-                            img.Source = thumb;
-                            img.Width = width;
+                            if (_sidebarItems.TryGetValue(idx, out var btn))
+                            {
+                                if (btn.Content is Image img)
+                                {
+                                    img.Source = thumb;
+                                    img.Width = width;
+                                }
+                                else
+                                {
+                                    btn.Content = new Image { Source = thumb, Width = width };
+                                }
+                            }
                         }
-                        else
-                        {
-                            btn.Content = new Image { Source = thumb, Width = width };
-                        }
-                    });
+                    }, DispatcherPriority.Normal);
                 }
+
+                // バッチごとに少し待機して UI スレッドに処理時間を譲る
+                await Task.Delay(5, token).ConfigureAwait(false);
             }
 
             _builtWidth = width;
@@ -308,6 +492,7 @@ public class ThumbnailController
 
     /// <summary>
     /// 指定要素から親の ScrollViewer を探索します（再帰）。
+    /// Template 内の ScrollViewer も探索対象に含めます。
     /// </summary>
     /// <param name="start">探索開始要素</param>
     /// <returns>見つかった ScrollViewer、なければ null</returns>
@@ -316,12 +501,25 @@ public class ThumbnailController
         if (start == null) return null;
         if (start is ScrollViewer sv) return sv;
 
+        // 子要素を探索
         for (int i = 0; i < VisualTreeHelper.GetChildrenCount(start); i++)
         {
             var child = VisualTreeHelper.GetChild(start, i);
             var result = FindScrollViewer(child);
             if (result != null) return result;
         }
+
+        // ItemsControl の場合、Template 内も探索
+        if (start is ItemsControl ic && ic.Template != null)
+        {
+            if (ic.ApplyTemplate() && VisualTreeHelper.GetChildrenCount(ic) > 0)
+            {
+                var child = VisualTreeHelper.GetChild(ic, 0);
+                var result = FindScrollViewer(child);
+                if (result != null) return result;
+            }
+        }
+
         return null;
     }
 
@@ -344,275 +542,142 @@ public class ThumbnailController
     }
 
     /// <summary>
-    /// 指定ボタンを可能な限り可視領域にスクロールして表示します。
-    /// 複数の手法を試行し、環境に依存する問題に対処します。
+    /// 指定のボタンを ScrollViewer 内にスクロールして可視化します。
     /// </summary>
-    /// <param name="btn">対象ボタン</param>
+    /// <param name="btn">可視化するボタン</param>
     private void TryScrollIntoView(Button btn)
     {
-        int idx = -1;
         try
         {
-            if (btn.Tag is int t) idx = t;
-        }
-        catch { }
-
-        Debug.WriteLine($"TryScrollIntoView start idx={idx}");
-
-        try
-        {
-            var sv = FindScrollViewer(_thumbnailSidebar);
-            var panel = FindItemsPanel(_thumbnailSidebar);
-            Debug.WriteLine($"Found sv={(sv!=null)}, panel={(panel!=null)}");
-
-            // VirtualizingStackPanel を使える場合は MakeVisible を試す
-            if (panel is VirtualizingStackPanel vsp)
+            // デバウンス: 短時間での連続呼び出しをスキップ
+            var now = DateTime.UtcNow;
+            if ((now - _lastScrollTime).TotalMilliseconds < ScrollDebounceMs)
             {
-                try
-                {
-                    double rectHeight = btn.RenderSize.Height;
-                    if (rectHeight <= 0)
-                    {
-                        var other = _sidebarItems.Values.FirstOrDefault(x => x != btn && x.RenderSize.Height > 0);
-                        if (other != null) rectHeight = other.RenderSize.Height;
-                        if (rectHeight <= 0) rectHeight = 48;
-                    }
-
-                    var rect = new Rect(new Point(0, 0), new Size(btn.RenderSize.Width > 0 ? btn.RenderSize.Width : _thumbnailSidebar.ActualWidth, rectHeight));
-                    Debug.WriteLine($"Trying MakeVisible idx={idx} rect={rect}");
-                    vsp.MakeVisible(btn, rect);
-                    Debug.WriteLine($"MakeVisible done idx={idx}");
-
-                    if (sv != null && sv.CanContentScroll && idx >= 0)
-                    {
-                        double logicalTarget = Math.Max(0, idx - 1);
-                        Debug.WriteLine($"Forcing logical scroll to {logicalTarget} (idx={idx})");
-                        sv.ScrollToVerticalOffset(logicalTarget);
-                    }
-
-                    _dispatcher.BeginInvoke(new Action(() =>
-                    {
-                        try
-                        {
-                            var sv2 = FindScrollViewer(_thumbnailSidebar);
-                            var panel2 = FindItemsPanel(_thumbnailSidebar);
-                            if (sv2 == null) return;
-
-                            Point topLeft2;
-                            if (panel2 != null)
-                            {
-                                try { topLeft2 = btn.TranslatePoint(new Point(0, 0), panel2); }
-                                catch { topLeft2 = new Point(double.NaN, double.NaN); }
-
-                                if (!double.IsNaN(topLeft2.Y))
-                                {
-                                    double itemTop2 = topLeft2.Y;
-                                    double itemBottom2 = itemTop2 + (double.IsNaN(btn.ActualHeight) || btn.ActualHeight == 0 ? btn.RenderSize.Height : btn.ActualHeight);
-                                    double viewTop2 = sv2.VerticalOffset;
-                                    double viewBottom2 = sv2.VerticalOffset + sv2.ViewportHeight;
-
-                                    const double margin = 4.0;
-                                    if (!sv2.CanContentScroll)
-                                    {
-                                        if (itemTop2 < viewTop2)
-                                        {
-                                            sv2.ScrollToVerticalOffset(Math.Max(0, itemTop2 - margin));
-                                            Debug.WriteLine($"Post-MakeVisible forced scroll up to {Math.Max(0, itemTop2 - margin)} idx={idx}");
-                                            return;
-                                        }
-                                        if (itemBottom2 > viewBottom2)
-                                        {
-                                            sv2.ScrollToVerticalOffset(Math.Min(sv2.ExtentHeight - sv2.ViewportHeight, itemBottom2 - sv2.ViewportHeight + margin));
-                                            Debug.WriteLine($"Post-MakeVisible forced scroll down idx={idx}");
-                                            return;
-                                        }
-                                    }
-                                    else
-                                    {
-                                        try
-                                        {
-                                            double currentLogical = sv2.VerticalOffset;
-                                            if (idx < (int)currentLogical)
-                                            {
-                                                sv2.ScrollToVerticalOffset(Math.Max(0, idx - 1));
-                                                Debug.WriteLine($"Post-MakeVisible forced logical scroll up to {Math.Max(0, idx - 1)} idx={idx}");
-                                                return;
-                                            }
-                                        }
-                                        catch { }
-                                    }
-                                }
-                            }
-
-                            Point topLeftSv2;
-                            try { topLeftSv2 = btn.TranslatePoint(new Point(0, 0), sv2); }
-                            catch { topLeftSv2 = new Point(double.NaN, double.NaN); }
-
-                            if (!double.IsNaN(topLeftSv2.Y))
-                            {
-                                double itemTopSv2 = topLeftSv2.Y;
-                                if (itemTopSv2 < 0)
-                                {
-                                    double newOff = Math.Max(0, sv2.VerticalOffset + itemTopSv2 - 4.0);
-                                    sv2.ScrollToVerticalOffset(newOff);
-                                    Debug.WriteLine($"Post-MakeVisible fallback scroll up to {newOff} idx={idx}");
-                                    return;
-                                }
-                            }
-                        }
-                        catch (Exception ex) { Debug.WriteLine($"Post-MakeVisible verify failed: {ex.Message}"); }
-                    }), DispatcherPriority.Background);
-
-                    return;
-                }
-                catch (Exception ex) { Debug.WriteLine($"MakeVisible failed: {ex.Message}"); }
+                return;
+            }
+            
+            if (!btn.IsLoaded)
+            {
+                return;
             }
 
+            var sv = FindScrollViewer(_thumbnailSidebar);
             if (sv == null)
             {
-                Debug.WriteLine("No ScrollViewer - calling BringIntoView");
-                try { btn.BringIntoView(); } catch { }
                 return;
             }
 
-            sv.UpdateLayout();
-            btn.UpdateLayout();
-
-            double itemTop, itemBottom;
-
-            if (panel != null)
+            // CanContentScroll=True の論理スクロールの場合は ViewportHeight チェックをスキップ
+            if (!sv.CanContentScroll && sv.ViewportHeight < 50)
             {
-                Point topLeft;
-                try
-                {
-                    topLeft = btn.TranslatePoint(new Point(0, 0), panel);
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"TranslatePoint to panel failed: {ex.Message}");
-                    topLeft = new Point(double.NaN, double.NaN);
-                }
-
-                if (!double.IsNaN(topLeft.Y))
-                {
-                    itemTop = topLeft.Y;
-                    itemBottom = itemTop + (double.IsNaN(btn.ActualHeight) || btn.ActualHeight == 0 ? btn.RenderSize.Height : btn.ActualHeight);
-
-                    double viewTop = sv.VerticalOffset;
-                    double viewBottom = sv.VerticalOffset + sv.ViewportHeight;
-
-                    const double margin = 4.0;
-
-                    if (!sv.CanContentScroll)
-                    {
-                        if (itemTop < viewTop)
-                        {
-                            double newOffset = Math.Max(0, itemTop - margin);
-                            sv.ScrollToVerticalOffset(newOffset);
-                            return;
-                        }
-                        else if (itemBottom > viewBottom)
-                        {
-                            double newOffset = Math.Min(sv.ExtentHeight - sv.ViewportHeight, itemBottom - sv.ViewportHeight + margin);
-                            sv.ScrollToVerticalOffset(newOffset);
-                            return;
-                        }
-
-                        try { btn.BringIntoView(); } catch { }
-                        return;
-                    }
-                    else
-                    {
-                        try
-                        {
-                            double currentLogical = sv.VerticalOffset;
-                            if (idx < (int)currentLogical)
-                            {
-                                sv.ScrollToVerticalOffset(Math.Max(0, idx - 1));
-                                return;
-                            }
-                            else if (idx > (int)(currentLogical + sv.ViewportHeight))
-                            {
-                                sv.ScrollToVerticalOffset(Math.Max(0, idx - (int)sv.ViewportHeight + 1));
-                                return;
-                            }
-
-                            try { btn.BringIntoView(); } catch { }
-                            return;
-                        }
-                        catch (Exception ex) { Debug.WriteLine($"Logical scroll branch failed: {ex.Message}"); }
-                    }
-                }
-            }
-
-            Point topLeftFallback;
-            try
-            {
-                topLeftFallback = btn.TranslatePoint(new Point(0, 0), sv);
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"TranslatePoint to sv failed: {ex.Message}");
-                try { btn.BringIntoView(); } catch { }
+                _ = RetryScrollIntoViewAsync(btn, 0);
                 return;
             }
 
-            itemTop = topLeftFallback.Y;
-            itemBottom = itemTop + (double.IsNaN(btn.ActualHeight) || btn.ActualHeight == 0 ? btn.RenderSize.Height : btn.RenderSize.Height);
+            // 実際のスクロール処理を実行
+            PerformScroll(btn, sv);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[TryScrollIntoView] 例外: {ex.Message}");
+        }
+    }
 
-            const double fallbackMargin = 4.0;
+    /// <summary>
+    /// ViewportHeight が小さい場合にリトライする
+    /// </summary>
+    private async Task RetryScrollIntoViewAsync(Button btn, int retryCount)
+    {
+        const int maxRetries = 3;
+        const int retryDelayMs = 50;
 
-            if (!sv.CanContentScroll)
+        if (retryCount >= maxRetries)
+        {
+            return;
+        }
+
+        await Task.Delay(retryDelayMs);
+
+        await _dispatcher.InvokeAsync(() =>
+        {
+            var sv = FindScrollViewer(_thumbnailSidebar);
+            if (sv == null || !btn.IsLoaded)
             {
-                if (itemTop < 0)
-                {
-                    double newOffset = Math.Max(0, sv.VerticalOffset + itemTop - fallbackMargin);
-                    sv.ScrollToVerticalOffset(newOffset);
-
-                    try
-                    {
-                        if (btn.Tag is int idx2 && idx2 >= 0)
-                        {
-                            double approxItemHeight = (double.IsNaN(btn.ActualHeight) || btn.ActualHeight == 0) ? btn.RenderSize.Height : btn.ActualHeight;
-                            double spacing = btn.Margin.Top + btn.Margin.Bottom;
-                            double targetOffset = Math.Max(0, idx2 * (approxItemHeight + spacing) - fallbackMargin);
-                            if (Math.Abs(sv.VerticalOffset - targetOffset) > 1.0)
-                                sv.ScrollToVerticalOffset(targetOffset);
-                        }
-                    }
-                    catch (Exception ex) { Debug.WriteLine($"Index-based fallback failed: {ex.Message}"); }
-                }
-                else if (itemBottom > sv.ViewportHeight)
-                {
-                    double delta = itemBottom - sv.ViewportHeight + fallbackMargin;
-                    double newOffset = Math.Min(sv.ExtentHeight - sv.ViewportHeight, sv.VerticalOffset + delta);
-                    sv.ScrollToVerticalOffset(newOffset);
-                }
-                else
-                {
-                    try { btn.BringIntoView(); } catch { }
-                }
+                return;
             }
-            else
+
+            if (sv.ViewportHeight < 50)
             {
-                try
-                {
-                    if (btn.Tag is int idx3 && idx3 >= 0)
-                    {
-                        double currentLogical = sv.VerticalOffset;
-                        if (idx3 < (int)currentLogical)
-                        {
-                            sv.ScrollToVerticalOffset(Math.Max(0, idx3 - 1));
-                        }
-                    }
-                }
-                catch (Exception ex) { Debug.WriteLine($"Logical fallback failed: {ex.Message}"); }
+                _ = RetryScrollIntoViewAsync(btn, retryCount + 1);
+                return;
+            }
+
+            PerformScroll(btn, sv);
+        }, DispatcherPriority.Background);
+    }
+
+    /// <summary>
+    /// 実際のスクロール処理を実行
+    /// </summary>
+    private void PerformScroll(Button btn, ScrollViewer sv)
+    {
+        try
+        {
+            // CanContentScroll=True の場合は、BringIntoView を使用
+            if (sv.CanContentScroll)
+            {
+                btn.BringIntoView();
+                _lastScrollTime = DateTime.UtcNow;
+                return;
+            }
+
+            // 物理スクロールモード（CanContentScroll=False）の場合
+            if (!IsDescendantOf(btn, sv))
+            {
+                return;
+            }
+
+            var transform = btn.TransformToAncestor(sv);
+            var rect = transform.TransformBounds(new Rect(0, 0, btn.ActualWidth, btn.ActualHeight));
+
+            bool needsScroll = false;
+            double newOffset = sv.VerticalOffset;
+
+            if (rect.Top < 0)
+            {
+                newOffset = Math.Max(0, sv.VerticalOffset + rect.Top - 10);
+                needsScroll = true;
+            }
+            else if (rect.Bottom > sv.ViewportHeight)
+            {
+                newOffset = sv.VerticalOffset + rect.Bottom - sv.ViewportHeight + 10;
+                needsScroll = true;
+            }
+
+            if (needsScroll)
+            {
+                sv.ScrollToVerticalOffset(newOffset);
+                _lastScrollTime = DateTime.UtcNow;
             }
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"TryScrollIntoView exception: {ex.Message}");
-            try { btn.BringIntoView(); } catch { }
+            Debug.WriteLine($"[PerformScroll] 例外: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// child が ancestor の子孫であるかをチェックします。
+    /// </summary>
+    private bool IsDescendantOf(DependencyObject child, DependencyObject ancestor)
+    {
+        var parent = VisualTreeHelper.GetParent(child);
+        while (parent != null)
+        {
+            if (parent == ancestor)
+                return true;
+            parent = VisualTreeHelper.GetParent(parent);
+        }
+        return false;
     }
 }

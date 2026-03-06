@@ -1,4 +1,5 @@
-﻿using System.IO;
+﻿using System.Collections.Frozen;
+using System.IO;
 
 namespace SimpleViewer.Models.ImageSources;
 
@@ -11,20 +12,25 @@ public abstract class ImageSourceBase : IDisposable
 {
     /// <summary>
     /// サポートする静的画像ファイルの拡張子一覧。
+    /// FrozenSet を使用して高速な検索を実現します（.NET 8 の最適化）。
     /// 小文字/大文字を区別せずに判定します。
     /// </summary>
-    protected static readonly string[] SupportedExtensions = new[] { ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp" };
+    private static readonly FrozenSet<string> SupportedExtensions = new[]
+    {
+        ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp"
+    }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// 指定パスがサポート対象の静的画像ファイルかどうかを判定します。
     /// null/空/空白のパスは false を返します。
+    /// FrozenSet による O(1) の高速検索を使用します。
     /// </summary>
     /// <param name="path">判定するファイルパス（相対/絶対可）</param>
     public static bool IsStaticImageFile(string path)
     {
         if (string.IsNullOrWhiteSpace(path)) return false;
         var ext = Path.GetExtension(path);
-        return SupportedExtensions.Any(e => e.Equals(ext, StringComparison.OrdinalIgnoreCase));
+        return SupportedExtensions.Contains(ext);
     }
 
     /// <summary>

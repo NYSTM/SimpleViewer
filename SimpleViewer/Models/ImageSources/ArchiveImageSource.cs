@@ -1,4 +1,5 @@
-﻿using SimpleViewer.Models.Imaging.Decoders;
+﻿using Microsoft.IO;
+using SimpleViewer.Models.Imaging.Decoders;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
@@ -8,7 +9,8 @@ namespace SimpleViewer.Models.ImageSources;
 
 /// <summary>
 /// ZIP アーカイブ内の画像エントリを読み出して BitmapSource として提供する画像ソース実装。
-/// IImageDecoder を注入可能にしてデコード責務を分離します。
+/// IImageDecoder を注入可能にしてデコード責任を分離します。
+/// RecyclableMemoryStream を使用してメモリ割り当てを最適化します。
 /// </summary>
 public class ArchiveImageSource : ImageSourceBase, IImageSource
 {
@@ -17,6 +19,7 @@ public class ArchiveImageSource : ImageSourceBase, IImageSource
     private readonly object _zipLock = new();
     private readonly IImageDecoder _decoder;
     private readonly string _zipPath;
+    private readonly RecyclableMemoryStreamManager _memoryStreamManager;
 
     /// <summary>
     /// このソースを一意に識別するキー（ZIPファイルパス）
@@ -32,6 +35,7 @@ public class ArchiveImageSource : ImageSourceBase, IImageSource
     {
         _zipPath = Path.GetFullPath(zipPath);
         _decoder = decoder ?? new SkiaImageDecoder();
+        _memoryStreamManager = new RecyclableMemoryStreamManager();
         _archive = ZipFile.OpenRead(zipPath);
         _entries = _archive.Entries
             .Where(e => ImageSourceBase.IsStaticImageFile(e.FullName))
@@ -46,7 +50,7 @@ public class ArchiveImageSource : ImageSourceBase, IImageSource
 
     /// <summary>
     /// 指定インデックスの画像をフルサイズで読み込み、BitmapSource を返します。
-    /// エントリのストリームを直接デコーダに渡し、不要なメモリコピーを避けます。
+    /// RecyclableMemoryStream を使用してメモリ割り当てを最適化します。
     /// </summary>
     /// <param name="index">ページインデックス</param>
     public async Task<BitmapSource?> GetPageImageAsync(int index)
@@ -55,20 +59,20 @@ public class ArchiveImageSource : ImageSourceBase, IImageSource
 
         try
         {
-            byte[]? buffer = null;
+            // RecyclableMemoryStream を使用してメモリプールから取得
+            using var ms = _memoryStreamManager.GetStream();
+            
             // ZipArchive の内部ストリームを使う間はロックする
             lock (_zipLock)
             {
                 using var entryStream = _entries[index].Open();
-                using var ms = new MemoryStream();
                 entryStream.CopyTo(ms);
-                buffer = ms.ToArray();
             }
 
-            if (buffer == null || buffer.Length == 0) return null;
+            if (ms.Length == 0) return null;
 
-            using var input = new MemoryStream(buffer);
-            var bmp = await _decoder.LoadImageAsync(input).ConfigureAwait(false);
+            ms.Position = 0;
+            var bmp = await _decoder.LoadImageAsync(ms).ConfigureAwait(false);
             if (bmp != null && bmp.CanFreeze) bmp.Freeze();
             return bmp;
         }
@@ -81,6 +85,7 @@ public class ArchiveImageSource : ImageSourceBase, IImageSource
 
     /// <summary>
     /// 指定インデックスのサムネイル（リサイズ済み）を取得します。
+    /// RecyclableMemoryStream を使用してメモリ割り当てを最適化します。
     /// デコーダ側でリサイズを行うことでメモリ消費を抑えます。
     /// </summary>
     /// <param name="index">ページインデックス</param>
@@ -91,19 +96,19 @@ public class ArchiveImageSource : ImageSourceBase, IImageSource
 
         try
         {
-            byte[]? buffer = null;
+            // RecyclableMemoryStream を使用してメモリプールから取得
+            using var ms = _memoryStreamManager.GetStream();
+            
             lock (_zipLock)
             {
                 using var entryStream = _entries[index].Open();
-                using var ms = new MemoryStream();
                 entryStream.CopyTo(ms);
-                buffer = ms.ToArray();
             }
 
-            if (buffer == null || buffer.Length == 0) return null;
+            if (ms.Length == 0) return null;
 
-            using var input = new MemoryStream(buffer);
-            var bmp = await _decoder.LoadThumbnailAsync(input, width).ConfigureAwait(false);
+            ms.Position = 0;
+            var bmp = await _decoder.LoadThumbnailAsync(ms, width).ConfigureAwait(false);
             if (bmp != null && bmp.CanFreeze) bmp.Freeze();
             return bmp;
         }

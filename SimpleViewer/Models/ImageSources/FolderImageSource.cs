@@ -1,4 +1,5 @@
-﻿using SimpleViewer.Models.Imaging.Decoders;
+﻿using Microsoft.IO;
+using SimpleViewer.Models.Imaging.Decoders;
 using SimpleViewer.Utils.Comparers;
 using System.Diagnostics;
 using System.IO;
@@ -9,12 +10,14 @@ namespace SimpleViewer.Models.ImageSources;
 /// <summary>
 /// 指定フォルダ内の画像ファイルをページとして扱う画像ソース実装。
 /// IImageDecoder を注入可能にしてデコード責務を切り離します。
+/// RecyclableMemoryStream を使用してメモリ割り当てを最適化します。
 /// </summary>
 public class FolderImageSource : ImageSourceBase, IImageSource
 {
     private readonly List<string> _filePaths;
     private readonly IImageDecoder _decoder;
     private readonly string _folderPath;
+    private readonly RecyclableMemoryStreamManager _memoryStreamManager;
 
     /// <summary>
     /// このソースを一意に識別するキー（フォルダパス）
@@ -30,6 +33,7 @@ public class FolderImageSource : ImageSourceBase, IImageSource
     {
         _folderPath = Path.GetFullPath(folderPath);
         _decoder = decoder ?? new SkiaImageDecoder();
+        _memoryStreamManager = new RecyclableMemoryStreamManager();
 
         _filePaths = Directory.Exists(folderPath)
             ? Directory.GetFiles(folderPath)
@@ -46,6 +50,8 @@ public class FolderImageSource : ImageSourceBase, IImageSource
 
     /// <summary>
     /// 指定インデックスの画像をフルサイズで非同期にロードします。
+    /// RecyclableMemoryStream を使用してメモリプールから効率的にストリームを取得し、
+    /// デコーダがストリームを安全に使用できるようにします。
     /// ファイル読み込みとデコードはバックグラウンドスレッドで実行され、UI スレッドをブロックしません。
     /// </summary>
     /// <param name="index">ページインデックス</param>
@@ -55,11 +61,24 @@ public class FolderImageSource : ImageSourceBase, IImageSource
 
         try
         {
-            // ファイルをバイト配列に読み込んでからデコードする
-            // これにより、デコード中にファイルストリームが閉じられる問題を回避
-            byte[] fileData = await File.ReadAllBytesAsync(_filePaths[index]).ConfigureAwait(false);
+            // RecyclableMemoryStream を使用してメモリプールから取得
+            using var ms = _memoryStreamManager.GetStream();
             
-            using var ms = new MemoryStream(fileData);
+            // FileStream から RecyclableMemoryStream にコピー
+            // デコード中にファイルストリームが閉じられる問題を回避しつつ、
+            // メモリプールの恩恵を受けられる
+            using (var fileStream = new FileStream(
+                _filePaths[index],
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                bufferSize: 4096,
+                useAsync: true))
+            {
+                await fileStream.CopyToAsync(ms).ConfigureAwait(false);
+            }
+            
+            ms.Position = 0;
             var bitmap = await _decoder.LoadImageAsync(ms).ConfigureAwait(false);
             if (bitmap != null && bitmap.CanFreeze) bitmap.Freeze();
             return bitmap;
@@ -73,6 +92,7 @@ public class FolderImageSource : ImageSourceBase, IImageSource
 
     /// <summary>
     /// 指定インデックスのサムネイルを非同期に取得します。
+    /// RecyclableMemoryStream を使用してメモリプールから効率的にストリームを取得します。
     /// Skia 側でデコード時にリサイズを行うことでメモリ消費を抑えます。
     /// </summary>
     /// <param name="index">ページインデックス</param>
@@ -86,13 +106,24 @@ public class FolderImageSource : ImageSourceBase, IImageSource
         {
             Debug.WriteLine($"[FolderImageSource] サムネイル生成開始: index={index}, file={Path.GetFileName(filePath)}, width={width}");
             
-            // ファイルをバイト配列に読み込んでからデコードする
-            // これにより、デコード中にファイルストリームが閉じられる問題を回避
-            byte[] fileData = await File.ReadAllBytesAsync(filePath).ConfigureAwait(false);
+            // RecyclableMemoryStream を使用してメモリプールから取得
+            using var ms = _memoryStreamManager.GetStream();
             
-            Debug.WriteLine($"[FolderImageSource] ファイル読み込み完了: {fileData.Length} bytes");
+            // FileStream から RecyclableMemoryStream にコピー
+            using (var fileStream = new FileStream(
+                filePath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                bufferSize: 4096,
+                useAsync: true))
+            {
+                await fileStream.CopyToAsync(ms).ConfigureAwait(false);
+            }
             
-            using var ms = new MemoryStream(fileData);
+            Debug.WriteLine($"[FolderImageSource] ファイル読み込み完了: {ms.Length} bytes");
+            
+            ms.Position = 0;
             var thumb = await _decoder.LoadThumbnailAsync(ms, width).ConfigureAwait(false);
             
             if (thumb != null)

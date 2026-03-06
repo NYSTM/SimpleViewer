@@ -17,7 +17,9 @@ public class ThumbnailService : IDisposable
 {
     private readonly ConcurrentDictionary<string, BitmapSource> _memoryCache = new();
     private readonly ConcurrentQueue<string> _cacheOrder = new();
-    private readonly SemaphoreSlim _concurrencySemaphore = new(4);
+    
+    // CPU コア数に基づいて同時実行数を設定（最小8、最大32）
+    private readonly SemaphoreSlim _concurrencySemaphore;
 
     // 同時に生成中のキーを管理して重複生成を抑制する
     private readonly ConcurrentDictionary<string, Task<BitmapSource?>> _inFlightTasks = new();
@@ -53,7 +55,11 @@ public class ThumbnailService : IDisposable
         _fileHandler = new BitmapFileHandler(imageDecoder);
         _clearDiskOnClear = settings.ThumbnailClearDiskOnClear;
 
-        Debug.WriteLine($"[ThumbnailService] 初期化完了: CacheDir={cacheDir}, MaxMB={settings.ThumbnailCacheMaxMB}");
+        // CPU コア数に基づいて同時実行数を設定（最小8、最大32）
+        int maxDegreeOfParallelism = Math.Clamp(Environment.ProcessorCount * 2, 8, 32);
+        _concurrencySemaphore = new SemaphoreSlim(maxDegreeOfParallelism);
+
+        Debug.WriteLine($"[ThumbnailService] 初期化完了: 並列度={maxDegreeOfParallelism}, CacheDir={cacheDir}, MaxMB={settings.ThumbnailCacheMaxMB}");
     }
 
     /// <summary>
@@ -68,15 +74,11 @@ public class ThumbnailService : IDisposable
     {
         try
         {
-            Debug.WriteLine($"[ThumbnailService] GetThumbnailAsync開始: index={index}, width={width}");
-
             var key = CacheKeyGenerator.MakeCacheKey(source, index);
-            Debug.WriteLine($"[ThumbnailService] CacheKey={key}");
 
             // メモリキャッシュを確認
             if (TryGetFromMemoryCache(key, width, out var cached))
             {
-                Debug.WriteLine($"[ThumbnailService] メモリキャッシュヒット: index={index}");
                 return cached;
             }
 
@@ -94,10 +96,14 @@ public class ThumbnailService : IDisposable
                 _inFlightTasks.TryRemove(key, out _);
             }
         }
+        catch (OperationCanceledException)
+        {
+            // キャンセルは正常な動作なのでログ出力しない
+            return null;
+        }
         catch (Exception ex)
         {
             Debug.WriteLine($"[ThumbnailService] エラー: index={index}, {ex.Message}");
-            Debug.WriteLine($"[ThumbnailService] スタックトレース: {ex.StackTrace}");
             return null;
         }
     }
@@ -116,15 +122,12 @@ public class ThumbnailService : IDisposable
         var diskCached = await TryGetFromDiskCacheAsync(key, width, ct).ConfigureAwait(false);
         if (diskCached != null)
         {
-            Debug.WriteLine($"[ThumbnailService] ディスクキャッシュヒット(内部): index={index}");
             AddToMemoryCache(key, diskCached);
             return diskCached;
         }
 
         // サムネイルを生成
-        Debug.WriteLine($"[ThumbnailService] サムネイル生成開始(内部): index={index}");
         var result = await GenerateThumbnailAsync(source, index, width, key, ct).ConfigureAwait(false);
-        Debug.WriteLine($"[ThumbnailService] サムネイル生成完了(内部): index={index}, result={result != null}");
         return result;
     }
 

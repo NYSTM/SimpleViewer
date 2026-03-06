@@ -59,6 +59,7 @@ namespace SimpleViewer.Utils.Caching
 
         /// <summary>
         /// メモリ状況とキャッシュ容量に応じて、中心となるインデックスから遠い順に一部を削除します。
+        /// GCは自動的にメモリ管理を行うため、明示的な呼び出しは行いません。
         /// </summary>
         public void PurgeIfNeeded(int centerIndex)
         {
@@ -73,9 +74,6 @@ namespace SimpleViewer.Utils.Caching
                         .ToList();
 
                     foreach (var k in keysToRemove) cache.TryRemove(k, out _);
-
-                    // GC を促す判断は呼び出し側のポリシーに依存するが、ここでは軽く促す
-                    GC.Collect();
                 }
             }
             catch

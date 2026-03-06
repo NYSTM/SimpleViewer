@@ -8,12 +8,14 @@ namespace SimpleViewer.Services;
 /// キャッシュキーの生成を担当するクラス。
 /// - ソースとインデックスからユニークなキーを生成します
 /// - SHA256ハッシュを使用して衝突を回避します
+/// - .NET 8 の静的メソッドを使用してパフォーマンスを最適化します
 /// </summary>
-public class CacheKeyGenerator
+public static class CacheKeyGenerator
 {
     /// <summary>
     /// サムネイルキャッシュ用のキーを生成します。
     /// ソースの識別子（通常はファイルパス）とインデックスから一意なキーを生成します。
+    /// .NET 8 の SHA256.HashData を使用してインスタンス生成のオーバーヘッドを削減します。
     /// </summary>
     /// <param name="source">画像ソース</param>
     /// <param name="index">ページ/エントリのインデックス</param>
@@ -24,8 +26,9 @@ public class CacheKeyGenerator
         var identifier = source.SourceIdentifier;
         var raw = $"{identifier}:{index}";
         
-        using var sha = SHA256.Create();
-        var hash = sha.ComputeHash(Encoding.UTF8.GetBytes(raw));
+        // .NET 8 の静的メソッドを使用してインスタンス生成を回避
+        var bytes = Encoding.UTF8.GetBytes(raw);
+        var hash = SHA256.HashData(bytes);
         return Convert.ToHexString(hash);
     }
 }
