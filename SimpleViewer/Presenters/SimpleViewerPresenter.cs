@@ -224,6 +224,9 @@ public class SimpleViewerPresenter
             return;
         }
 
+        // サムネイル生成を一時停止（ページ移動を最優先）
+        thumbnailService.PauseThumbnailGeneration();
+
         // 既にナビゲーション中の場合は、進行中の処理をキャンセル
         if (_isNavigating)
         {
@@ -277,6 +280,10 @@ public class SimpleViewerPresenter
         finally
         {
             _isNavigating = false;
+            
+            // サムネイル生成を再開
+            thumbnailService.ResumeThumbnailGeneration();
+            
             System.Diagnostics.Debug.WriteLine($"[JumpToPageAsync] 完了: index={index}");
         }
     }

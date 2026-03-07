@@ -32,6 +32,10 @@ public class ThumbnailService : IDisposable
     
     // サムネイル生成をキャンセルするためのトークンソース
     private CancellationTokenSource _generationCts = new();
+    
+    // サムネイル生成の一時停止状態を管理
+    private volatile bool _isPaused = false;
+    private readonly SemaphoreSlim _pauseSemaphore = new(0);
 
     // メモリキャッシュ操作のためのロック
     private readonly object _memoryLock = new();
@@ -209,6 +213,41 @@ public class ThumbnailService : IDisposable
     }
 
     /// <summary>
+    /// サムネイル生成を一時停止します。
+    /// ページ移動中など、サムネイル生成のリソースを一時的に解放したい場合に使用します。
+    /// 進行中のタスクは中断されず、新しいタスクの開始のみが停止されます。
+    /// </summary>
+    public void PauseThumbnailGeneration()
+    {
+        if (!_isPaused)
+        {
+            _isPaused = true;
+            System.Diagnostics.Debug.WriteLine("[ThumbnailService] サムネイル生成を一時停止");
+        }
+    }
+
+    /// <summary>
+    /// 一時停止していたサムネイル生成を再開します。
+    /// </summary>
+    public void ResumeThumbnailGeneration()
+    {
+        if (_isPaused)
+        {
+            _isPaused = false;
+            // 待機中のタスクを再開
+            try
+            {
+                _pauseSemaphore.Release();
+            }
+            catch (SemaphoreFullException)
+            {
+                // すでに解放済みの場合は無視
+            }
+            System.Diagnostics.Debug.WriteLine("[ThumbnailService] サムネイル生成を再開");
+        }
+    }
+
+    /// <summary>
     /// メモリキャッシュから取得を試みます。
     /// </summary>
     private bool TryGetFromMemoryCache(string key, int width, out BitmapSource? cached)
@@ -270,6 +309,13 @@ public class ThumbnailService : IDisposable
         string key,
         CancellationToken ct)
     {
+        // 一時停止中の場合は待機
+        if (_isPaused)
+        {
+            System.Diagnostics.Debug.WriteLine($"[GenerateThumbnailAsync] 一時停止中のため待機: index={index}");
+            await _pauseSemaphore.WaitAsync(ct).ConfigureAwait(false);
+        }
+
         // 同時生成数を制御
         await _concurrencySemaphore.WaitAsync(ct).ConfigureAwait(false);
         try
@@ -357,6 +403,7 @@ public class ThumbnailService : IDisposable
         _generationCts?.Cancel();
         _generationCts?.Dispose();
         _concurrencySemaphore?.Dispose();
+        _pauseSemaphore?.Dispose();
         GC.SuppressFinalize(this);
     }
 }
