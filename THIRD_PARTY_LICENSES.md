@@ -8,6 +8,13 @@
 
 - `SimpleViewer/THIRD_PARTY_LICENSES.txt`
 - `SimpleViewer/licenses/`
+- `SimpleViewer/licenses/GLFW_LICENSE.txt`
+
+補足:
+
+- `SimpleViewer` の publish 出力には、推移依存として `glfw3.dll` が含まれる場合があります。
+- この DLL は `OpenTK.redist.glfw` 経由で配布される `GLFW` 由来のネイティブライブラリです。
+- `GLFW` のライセンスは一般に `zlib/libpng License` として案内されます。
 
 ## その他のプロジェクト
 

@@ -36,13 +36,26 @@ Packages:
    - License: MIT
    - License file: licenses/VirtualizingWrapPanel_LICENSE.txt
 
-7) OpenTK (transitive)
-   - If present as transitive dependency, verify actual package names and include their license files if required.
+7) OpenTK 4.3.0 (transitive)
+   - NuGet: https://www.nuget.org/packages/OpenTK/4.3.0
+   - License: MIT
+
+8) OpenTK.GLWpfControl 4.2.3 (transitive)
+   - NuGet: https://www.nuget.org/packages/OpenTK.GLWpfControl/4.2.3
+   - License: MIT
+
+9) OpenTK.redist.glfw 3.3.0-pre20200830200122 (transitive)
+   - NuGet: https://www.nuget.org/packages/OpenTK.redist.glfw/3.3.0-pre20200830200122
+   - Included native binary: glfw3.dll
+   - Upstream component: GLFW
+   - GLFW license: zlib/libpng License
+   - License file: licenses/GLFW_LICENSE.txt
+   - Note: glfw3.dll may be included in publish output through transitive dependencies.
 
 Notes and recommended next steps:
-- These license files were copied into the `licenses/` directory. Please verify their contents against the authoritative package distributions and include any NOTICE files required by Apache-2.0 packages.
-- If any package is Apache-2.0, include any required NOTICE content in your distribution.
-- If any package uses GPL/LGPL, consult legal/OSS policy before redistribution ? these licenses may impose source-distribution obligations.
+- These license files were copied into the `licenses/` directory where available. Please verify their contents against the authoritative package distributions and include any NOTICE files required by package authors.
+- `glfw3.dll` is distributed via `OpenTK.redist.glfw`, but its upstream license should also be reviewed as a native bundled component.
+- If any package uses GPL/LGPL, consult legal/OSS policy before redistribution; these licenses may impose source-distribution obligations.
 
 Suggested distribution layout:
 - LICENSE.txt (project's MIT license)
