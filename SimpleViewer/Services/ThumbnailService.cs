@@ -2,7 +2,6 @@
 using SimpleViewer.Models.Imaging.Decoders;
 using SimpleViewer.Utils.Configuration;
 using System.Collections.Concurrent;
-using System.Diagnostics;
 using System.Windows.Media.Imaging;
 
 namespace SimpleViewer.Services;

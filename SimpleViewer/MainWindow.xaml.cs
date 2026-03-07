@@ -65,13 +65,16 @@ public partial class MainWindow : Window
             dispatcher: Dispatcher,
             buttonStyle: buttonStyle,
             openFileCallback: OpenFileDialogAsync,
-            toggleSidebarCallback: () => _coordinator.ToggleSidebar(),
+            toggleSidebarCallback: null!, // 循環参照を避けるため、後で設定
             clearUICallback: ClearUI,
             closeSourceCallback: null,
             getViewSizeFunc: _sizeProvider.GetViewSize,
             getContentSizeFunc: _sizeProvider.GetContentSize
         );
 
+        // ToggleSidebarコールバックを設定（初期化後に循環参照を解決）
+        _coordinator.SetToggleSidebarCallback(() => _coordinator.ToggleSidebar());
+        
         // ViewImplementationを初期化（SidebarManagerへのアクセスを避ける）
         SimpleViewerPresenter? presenterRef = null;
         SidebarManager? sidebarManagerRef = null;
@@ -84,7 +87,7 @@ public partial class MainWindow : Window
             ModeText,
             PageSlider,
             this,
-            () => sidebarManagerRef ?? throw new InvalidOperationException("SidebarManager is not yet initialized"),
+            () => sidebarManagerRef ?? throw new InvalidOperationException("SidebarManager がまだ初期化されていません"),
             null, // FileOpenHandlerは後で設定
             _coordinator.OnViewSizeChanged,
             () => presenterRef?.CurrentDisplayMode ?? Models.DisplayMode.Single);
@@ -102,7 +105,7 @@ public partial class MainWindow : Window
         // FileOpenHandlerを正式なPresenterで作成
         _fileOpenHandler = new FileOpenHandler(
             _presenter,
-            _coordinator.SidebarManager,
+            sidebarManagerRef,
             _titleBarManager);
 
         // CloseSourceコールバックをWindowCoordinatorに設定

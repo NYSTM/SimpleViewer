@@ -44,7 +44,14 @@ public class PageNavigationManager
     public void SetTotalPageCount(int totalCount)
     {
         TotalPageCount = Math.Max(0, totalCount);
-        CurrentPageIndex = Math.Clamp(CurrentPageIndex, 0, TotalPageCount - 1);
+        if (TotalPageCount > 0)
+        {
+            CurrentPageIndex = Math.Clamp(CurrentPageIndex, 0, TotalPageCount - 1);
+        }
+        else
+        {
+            CurrentPageIndex = 0;
+        }
     }
 
     /// <summary>

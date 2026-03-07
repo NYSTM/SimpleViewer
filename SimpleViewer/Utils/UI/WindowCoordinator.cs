@@ -42,15 +42,15 @@ public class WindowCoordinator
     private readonly Dispatcher _dispatcher;
     private readonly Style _buttonStyle;
     private readonly Func<Task> _openFileCallback;
-    private readonly Action _toggleSidebarCallback;
+    private Action _toggleSidebarCallback = null!; // 後で設定されるため null! で初期化
     private readonly Func<Size> _getViewSizeFunc;
     private readonly Func<Size> _getContentSizeFunc;
     private Action? _closeSourceCallback;
 
     public ZoomManager ZoomManager => _zoomManager;
-    public SidebarManager SidebarManager => _sidebarManager ?? throw new InvalidOperationException("SidebarManager未初期化");
-    public CatalogController CatalogController => _catalogController ?? throw new InvalidOperationException("CatalogController未初期化");
-    public InputHandler InputHandler => _inputHandler ?? throw new InvalidOperationException("InputHandler未初期化");
+    public SidebarManager SidebarManager => _sidebarManager ?? throw new InvalidOperationException("SidebarManager がまだ初期化されていません");
+    public CatalogController CatalogController => _catalogController ?? throw new InvalidOperationException("CatalogController がまだ初期化されていません");
+    public InputHandler InputHandler => _inputHandler ?? throw new InvalidOperationException("InputHandler がまだ初期化されていません");
 
     public WindowCoordinator(
         Window window,
@@ -69,7 +69,7 @@ public class WindowCoordinator
         Dispatcher dispatcher,
         Style buttonStyle,
         Func<Task> openFileCallback,
-        Action toggleSidebarCallback,
+        Action? toggleSidebarCallback, // null 許容型に変更
         Action? clearUICallback,
         Action? closeSourceCallback,
         Func<Size> getViewSizeFunc,
@@ -89,7 +89,10 @@ public class WindowCoordinator
         _dispatcher = dispatcher;
         _buttonStyle = buttonStyle;
         _openFileCallback = openFileCallback;
-        _toggleSidebarCallback = toggleSidebarCallback;
+        if (toggleSidebarCallback != null)
+        {
+            _toggleSidebarCallback = toggleSidebarCallback;
+        }
         _closeSourceCallback = closeSourceCallback;
         _getViewSizeFunc = getViewSizeFunc;
         _getContentSizeFunc = getContentSizeFunc;
@@ -119,6 +122,11 @@ public class WindowCoordinator
         _closeSourceCallback = () => _ = closeSourceCallback();
         if (_inputHandler != null && _presenter != null)
             RebuildInputHandler();
+    }
+
+    public void SetToggleSidebarCallback(Action toggleSidebarCallback)
+    {
+        _toggleSidebarCallback = toggleSidebarCallback;
     }
 
     private void InitializeComponents(SimpleViewerPresenter presenter)

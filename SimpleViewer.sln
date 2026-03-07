@@ -17,6 +17,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SimpleExifLib.Tests", "Simp
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SimpleExifLib.Benchmarks", "SimpleExifLib.Benchmarks\SimpleExifLib.Benchmarks.csproj", "{0E405398-6781-D074-4071-BECEF5C93F86}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SimpleViewer.Tests", "SimpleViewer.Tests\SimpleViewer.Tests.csproj", "{28D75FF5-A556-2249-DABF-F88256B74D9C}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -39,6 +41,10 @@ Global
 		{0E405398-6781-D074-4071-BECEF5C93F86}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{0E405398-6781-D074-4071-BECEF5C93F86}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{0E405398-6781-D074-4071-BECEF5C93F86}.Release|Any CPU.Build.0 = Release|Any CPU
+		{28D75FF5-A556-2249-DABF-F88256B74D9C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{28D75FF5-A556-2249-DABF-F88256B74D9C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{28D75FF5-A556-2249-DABF-F88256B74D9C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{28D75FF5-A556-2249-DABF-F88256B74D9C}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

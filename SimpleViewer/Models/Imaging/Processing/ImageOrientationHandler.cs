@@ -13,13 +13,13 @@ public class ImageOrientationHandler
     /// </summary>
     /// <param name="source">元画像</param>
     /// <param name="orientation">EXIF Orientation値（1-8）</param>
-    /// <returns>変換後の画像</returns>
-    public BitmapSource ApplyOrientation(BitmapSource source, int orientation)
+    /// <returns>変換後の画像、sourceがnullの場合はnull</returns>
+    public BitmapSource? ApplyOrientation(BitmapSource? source, int orientation)
     {
-        if (source == null) return source;
+        if (source == null) return null;
         if (orientation <= 1) return source;
 
-        Transform transform = CreateTransform(orientation);
+        Transform? transform = CreateTransform(orientation);
         if (transform == null) return source;
 
         return ApplyTransform(source, transform);

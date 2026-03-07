@@ -1,8 +1,4 @@
-﻿using System;
-using System.IO;
-using System.Threading.Tasks;
-
-namespace SimpleExifLib
+﻿namespace SimpleExifLib
 {
     /// <summary>
     /// 画像ストリームから適切な <see cref="IExifReader"/> を選択して EXIF を読み取る簡易ファクトリ。

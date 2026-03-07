@@ -21,7 +21,7 @@ public class MainWindowViewImplementation : IView
     private readonly Func<SidebarManager> _getSidebarManagerFunc;
     private FileOpenHandler? _fileOpenHandler;
     private readonly Action<Func<Size>, Func<Size>> _onViewSizeChangedCallback;
-    private readonly Func<SimpleViewer.Models.DisplayMode> _getDisplayModeFunc;
+    private readonly Func<Models.DisplayMode> _getDisplayModeFunc;
 
     /// <summary>
     /// コンストラクタ

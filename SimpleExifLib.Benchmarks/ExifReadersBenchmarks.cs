@@ -1,12 +1,8 @@
-﻿using System.IO;
-using System.Reflection;
-using System.Linq;
-using System.Collections.Generic;
-using BenchmarkDotNet.Attributes;
+﻿using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Order;
 using MetadataExtractor;
 using MetadataExtractor.Formats.Exif;
-using SimpleExifLib;
+using System.Reflection;
 
 namespace SimpleExifLib.Benchmarks
 {
