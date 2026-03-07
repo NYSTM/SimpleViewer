@@ -71,7 +71,7 @@ public class FolderImageSource : ImageSourceBase, IImageSource
                 FileMode.Open,
                 FileAccess.Read,
                 FileShare.Read,
-                bufferSize: 4096,
+                bufferSize: 65536,
                 useAsync: true))
             {
                 await fileStream.CopyToAsync(ms).ConfigureAwait(false);
@@ -112,7 +112,7 @@ public class FolderImageSource : ImageSourceBase, IImageSource
                 FileMode.Open,
                 FileAccess.Read,
                 FileShare.Read,
-                bufferSize: 8192,
+                bufferSize: 65536,
                 useAsync: true))
             {
                 await fileStream.CopyToAsync(ms).ConfigureAwait(false);

@@ -49,7 +49,7 @@ public class BitmapFileHandler
     }
 
     /// <summary>
-    /// BitmapSourceをPNGファイルとして保存します。
+    /// BitmapSourceをJPEGファイルとして保存します。
     /// </summary>
     /// <param name="bmp">保存するビットマップ</param>
     /// <param name="path">保存先のファイルパス</param>
@@ -57,7 +57,6 @@ public class BitmapFileHandler
     {
         try
         {
-            // ディレクトリが存在することを確認
             var directory = Path.GetDirectoryName(path);
             if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
             {
@@ -69,7 +68,8 @@ public class BitmapFileHandler
             using (var fs = File.OpenWrite(temp))
             {
                 fs.SetLength(0);
-                var encoder = new PngBitmapEncoder();
+                // PNG→JPEG: サムネイル用途では品質85で十分、書き込み速度とファイルサイズが大幅改善
+                var encoder = new JpegBitmapEncoder { QualityLevel = 85 };
                 encoder.Frames.Add(BitmapFrame.Create(bmp));
                 encoder.Save(fs);
             }
@@ -86,21 +86,17 @@ public class BitmapFileHandler
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[BitmapFileHandler] ファイル保存エラー: {path}, {ex.Message}");
-            // 一時ファイルが残っていたら削除を試みる
             try
             {
                 var temp = path + ".tmp";
-                if (File.Exists(temp))
-                {
-                    File.Delete(temp);
-                }
+                if (File.Exists(temp)) File.Delete(temp);
             }
             catch { /* 無視 */ }
         }
     }
 
     /// <summary>
-    /// WPFのPngBitmapDecoderを使用してビットマップを読み込みます。
+    /// WPFのJpegBitmapDecoderを使用してビットマップを読み込みます。
     /// </summary>
     /// <param name="path">ファイルパス</param>
     /// <param name="ct">キャンセルトークン</param>
@@ -112,12 +108,11 @@ public class BitmapFileHandler
             try
             {
                 using var fs = File.OpenRead(path);
-                var decoder = new PngBitmapDecoder(
+                var decoder = new JpegBitmapDecoder(
                     fs,
                     BitmapCreateOptions.PreservePixelFormat,
                     BitmapCacheOption.OnLoad);
-                var frame = decoder.Frames.FirstOrDefault();
-                return frame;
+                return decoder.Frames.FirstOrDefault();
             }
             catch
             {

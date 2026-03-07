@@ -89,7 +89,7 @@ public class MainWindowMenuHandler
     /// </summary>
     public void HandleMenuFitWidthClick()
     {
-        _coordinator.SetZoomMode(ZoomMode.FitWidth, _getViewSizeFunc, _getContentSizeFunc);
+        _coordinator.ZoomManager.SetMode(ZoomMode.FitWidth, _getViewSizeFunc(), _getContentSizeFunc());
     }
 
     /// <summary>
@@ -97,7 +97,7 @@ public class MainWindowMenuHandler
     /// </summary>
     public void HandleMenuFitPageClick()
     {
-        _coordinator.SetZoomMode(ZoomMode.FitPage, _getViewSizeFunc, _getContentSizeFunc);
+        _coordinator.ZoomManager.SetMode(ZoomMode.FitPage, _getViewSizeFunc(), _getContentSizeFunc());
     }
 
     /// <summary>
@@ -105,7 +105,7 @@ public class MainWindowMenuHandler
     /// </summary>
     public void HandleMenuResetZoomClick()
     {
-        _coordinator.ResetZoom();
+        _coordinator.ZoomManager.ResetZoom();
     }
 
     /// <summary>
@@ -113,7 +113,7 @@ public class MainWindowMenuHandler
     /// </summary>
     public void HandleMenuZoomInClick()
     {
-        _coordinator.ZoomIn();
+        _coordinator.ZoomManager.ZoomIn();
     }
 
     /// <summary>
@@ -121,7 +121,7 @@ public class MainWindowMenuHandler
     /// </summary>
     public void HandleMenuZoomOutClick()
     {
-        _coordinator.ZoomOut();
+        _coordinator.ZoomManager.ZoomOut();
     }
 
     /// <summary>
