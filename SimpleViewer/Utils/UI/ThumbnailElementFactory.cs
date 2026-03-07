@@ -48,9 +48,28 @@ public class ThumbnailElementFactory
         {
             Style = _thumbnailButtonStyle,
             Content = thumbnail != null ? new Image { Source = thumbnail } : null,
-            Tag = index
+            Tag = index,
+            Margin = new Thickness(4),
+            BorderThickness = new Thickness(3),
+            BorderBrush = Brushes.Transparent,
+            Background = Brushes.Transparent,
+            Focusable = false
         };
-        btn.Click += (s, e) => { _ = _jumpToPageCallback(index); };
+        btn.Click += async (s, e) =>
+        {
+            _highlightCallback?.Invoke(index);
+
+            try
+            {
+                await _jumpToPageCallback(index);
+                _highlightCallback?.Invoke(index);
+                _focusWindowCallback?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ThumbnailElementFactory] ページジャンプエラー: {ex.Message}");
+            }
+        };
         return btn;
     }
 
@@ -84,6 +103,7 @@ public class ThumbnailElementFactory
             try
             {
                 await _jumpToPageCallback.Invoke(idx);
+                _highlightCallback?.Invoke(idx);
                 _focusWindowCallback?.Invoke();
             }
             catch (Exception ex)

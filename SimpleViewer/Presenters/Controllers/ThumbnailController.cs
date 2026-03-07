@@ -13,6 +13,9 @@ namespace SimpleViewer.Presenters.Controllers;
 /// </summary>
 public class ThumbnailController
 {
+    private static readonly Brush SelectedThumbnailBorderBrush = new SolidColorBrush(Color.FromRgb(249, 115, 22));
+    private static readonly Brush SelectedThumbnailBackgroundBrush = new SolidColorBrush(Color.FromRgb(255, 237, 213));
+
     private readonly SimpleViewerPresenter _presenter;
     private readonly ItemsControl _thumbnailSidebar;
     private readonly Dispatcher _dispatcher;
@@ -211,13 +214,21 @@ public class ThumbnailController
         if (target != index) return;
 
         if (_lastHighlightedIndex != target && _lastHighlightedIndex != -1 && _sidebarItems.TryGetValue(_lastHighlightedIndex, out var oldBtn))
+        {
             oldBtn.BorderBrush = Brushes.Transparent;
+            oldBtn.Background = Brushes.Transparent;
+        }
 
         if (_sidebarItems.TryGetValue(target, out var currentBtn))
         {
-            currentBtn.BorderBrush = SystemColors.HighlightBrush;
+            currentBtn.BorderBrush = SelectedThumbnailBorderBrush;
+            currentBtn.Background = SelectedThumbnailBackgroundBrush;
             _lastHighlightedIndex = target;
-            _ = _dispatcher.InvokeAsync(() => { if (_pendingHighlightIndex == target && currentBtn.IsLoaded) _scrollHelper.TryScrollIntoView(currentBtn, _thumbnailSidebar); }, DispatcherPriority.Loaded);
+            _ = _dispatcher.InvokeAsync(() =>
+            {
+                if (_pendingHighlightIndex == target && currentBtn.IsLoaded)
+                    _scrollHelper.TryScrollIntoView(currentBtn, _thumbnailSidebar);
+            }, DispatcherPriority.Loaded);
         }
         else
         {
@@ -226,7 +237,11 @@ public class ThumbnailController
             {
                 var nearestIndex = _sidebarItems.Keys.OrderBy(k => Math.Abs(k - target)).FirstOrDefault();
                 if (_sidebarItems.TryGetValue(nearestIndex, out var nearestBtn))
-                    _ = _dispatcher.InvokeAsync(() => { if (_pendingHighlightIndex == target && nearestBtn.IsLoaded) _scrollHelper.TryScrollIntoView(nearestBtn, _thumbnailSidebar); }, DispatcherPriority.Loaded);
+                    _ = _dispatcher.InvokeAsync(() =>
+                    {
+                        if (_pendingHighlightIndex == target && nearestBtn.IsLoaded)
+                            _scrollHelper.TryScrollIntoView(nearestBtn, _thumbnailSidebar);
+                    }, DispatcherPriority.Loaded);
             }
         }
     }
@@ -258,40 +273,47 @@ public class ThumbnailController
                 var batchIndices = indices.Skip(batchStart).Take(BatchSize).ToArray();
                 var tasks = batchIndices.Select(async idx =>
                 {
-                    try { return (Index: idx, Thumbnail: await _presenter.GetThumbnailAsync(idx, width, token).ConfigureAwait(false)); }
-                    catch (OperationCanceledException) { return (Index: idx, Thumbnail: (BitmapSource?)null); }
+                    try
+                    {
+                        var thumb = await _presenter.GetThumbnailAsync(idx, width, token).ConfigureAwait(false);
+                        return (Index: idx, Thumbnail: thumb, Success: true);
+                    }
+                    catch (OperationCanceledException) { return (idx, null, false); }
+                    catch (Exception ex) { Debug.WriteLine($"[RefreshAsync] エラー index={idx}: {ex.Message}"); return (idx, null, true); }
                 });
                 var results = await Task.WhenAll(tasks).ConfigureAwait(false);
-                var validResults = results.Where(r => r.Thumbnail != null).ToList();
-                if (validResults.Count > 0)
+                await _dispatcher.InvokeAsync(() =>
                 {
-                    await _dispatcher.InvokeAsync(() =>
+                    foreach (var (index, thumbnail, success) in results)
                     {
-                        foreach (var result in validResults)
-                            if (_sidebarItems.TryGetValue(result.Index, out var btn))
-                                ThumbnailElementFactory.UpdateButtonImageAndWidth(btn, result.Thumbnail, width);
-                    }, DispatcherPriority.Normal);
-                }
-                await Task.Delay(5, token).ConfigureAwait(false);
+                        if (!success) continue;
+                        if (_sidebarItems.TryGetValue(index, out var btn))
+                        {
+                            ThumbnailElementFactory.UpdateButtonImageAndWidth(btn, thumbnail, width);
+                        }
+                    }
+                }, DispatcherPriority.Background, token);
+                await Task.Delay(10, token).ConfigureAwait(false);
             }
-            _builtWidth = width;
         }
         catch (OperationCanceledException) { }
-        catch (Exception ex) { Debug.WriteLine($"ThumbnailController.RefreshAsync Error: {ex.Message}"); }
+        catch (Exception ex) { Debug.WriteLine($"[RefreshAsync] 全体エラー: {ex.Message}"); }
     }
 
     /// <summary>
-    /// 既存のサムネイルボタンから画像を取得します（カタログ表示用）。
+    /// 既に生成済みのサムネイルのインデックス一覧を取得します。
+    /// </summary>
+    public IEnumerable<int> GetExistingThumbnailIndices() => _sidebarItems.Keys.OrderBy(x => x);
+
+    /// <summary>
+    /// 指定インデックスの既存サムネイル画像を取得します。
     /// </summary>
     public BitmapSource? GetExistingThumbnail(int index)
     {
-        if (_sidebarItems.TryGetValue(index, out var btn) && btn.Content is Image img && img.Source is BitmapSource source)
-            return source;
+        if (_sidebarItems.TryGetValue(index, out var btn) && btn.Content is Image img)
+        {
+            return img.Source as BitmapSource;
+        }
         return null;
     }
-
-    /// <summary>
-    /// すべての既存サムネイルのインデックスを取得します。
-    /// </summary>
-    public IEnumerable<int> GetExistingThumbnailIndices() => _sidebarItems.Keys.OrderBy(k => k);
 }

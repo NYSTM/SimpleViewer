@@ -35,9 +35,15 @@ public class MainWindowSizeProvider
     /// <returns>ビューサイズ</returns>
     public Size GetViewSize()
     {
-        return new Size(
-            _mainScrollViewer.ActualWidth - 4,
-            _mainScrollViewer.ActualHeight - 4);
+        double width = _mainScrollViewer.ViewportWidth > 0
+            ? _mainScrollViewer.ViewportWidth
+            : _mainScrollViewer.ActualWidth;
+
+        double height = _mainScrollViewer.ViewportHeight > 0
+            ? _mainScrollViewer.ViewportHeight
+            : _mainScrollViewer.ActualHeight;
+
+        return new Size(Math.Max(0, width), Math.Max(0, height));
     }
 
     /// <summary>
@@ -53,7 +59,7 @@ public class MainWindowSizeProvider
 
         double totalWidth = _imageLeft.Source.Width +
             (_imageRight.Visibility == Visibility.Visible ? (_imageRight.Source?.Width ?? 0) : 0);
-        
+
         double maxHeight = Math.Max(
             _imageLeft.Source.Height,
             _imageRight.Visibility == Visibility.Visible ? (_imageRight.Source?.Height ?? 0) : 0);

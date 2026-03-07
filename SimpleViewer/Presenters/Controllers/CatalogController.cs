@@ -12,25 +12,29 @@ namespace SimpleViewer.Presenters.Controllers;
 /// </summary>
 public class CatalogController : IDisposable
 {
+    private static readonly Brush SelectedThumbnailBorderBrush = new SolidColorBrush(Color.FromRgb(249, 115, 22));
+    private static readonly Brush SelectedThumbnailBackgroundBrush = new SolidColorBrush(Color.FromRgb(255, 237, 213));
+    private static readonly Brush HoverThumbnailBorderBrush = new SolidColorBrush(Color.FromRgb(251, 146, 60));
+    private static readonly Brush HoverThumbnailBackgroundBrush = new SolidColorBrush(Color.FromRgb(255, 247, 237));
+
     private readonly Panel _catalogPanel;
     private readonly FrameworkElement _catalogOverlay;
     private readonly Func<int> _getPageMaximum;
+    private readonly Func<int> _getCurrentPageIndex;
     private readonly Func<int, int, CancellationToken, Task<BitmapSource?>> _getThumbnailAsync;
     private readonly Func<int, Task> _jumpToPageAsync;
     private readonly Style _thumbButtonStyle;
     private readonly Dispatcher _dispatcher;
     private readonly Action _focusWindow;
-    
-    // ThumbnailController への参照を追加（サムネイル共有のため）
     private readonly ThumbnailController? _thumbnailController;
 
-    // 表示中のサムネイル生成をキャンセルするための CTS
     private CancellationTokenSource? _cts;
 
     public CatalogController(
         Panel catalogPanel,
         FrameworkElement catalogOverlay,
         Func<int> getPageMaximum,
+        Func<int> getCurrentPageIndex,
         Func<int, int, CancellationToken, Task<BitmapSource?>> getThumbnailAsync,
         Func<int, Task> jumpToPageAsync,
         Style thumbButtonStyle,
@@ -41,6 +45,7 @@ public class CatalogController : IDisposable
         _catalogPanel = catalogPanel ?? throw new ArgumentNullException(nameof(catalogPanel));
         _catalogOverlay = catalogOverlay ?? throw new ArgumentNullException(nameof(catalogOverlay));
         _getPageMaximum = getPageMaximum ?? throw new ArgumentNullException(nameof(getPageMaximum));
+        _getCurrentPageIndex = getCurrentPageIndex ?? throw new ArgumentNullException(nameof(getCurrentPageIndex));
         _getThumbnailAsync = getThumbnailAsync ?? throw new ArgumentNullException(nameof(getThumbnailAsync));
         _jumpToPageAsync = jumpToPageAsync ?? throw new ArgumentNullException(nameof(jumpToPageAsync));
         _thumbButtonStyle = thumbButtonStyle ?? new Style(typeof(Button));
@@ -76,10 +81,8 @@ public class CatalogController : IDisposable
     /// </summary>
     public async Task ShowAsync()
     {
-        // 以前の処理をキャンセルしてから開始
         CancelAndDispose();
 
-        // カタログ UI を表示してパネルをクリア（UI スレッドで実行）
         _dispatcher.Invoke(() =>
         {
             _catalogOverlay.Visibility = Visibility.Visible;
@@ -90,21 +93,21 @@ public class CatalogController : IDisposable
         var token = _cts.Token;
 
         int max = _getPageMaximum();
-        
-        // フェーズ1: 既存のサムネイルを高速表示
+        int currentPageIndex = Math.Clamp(_getCurrentPageIndex(), 0, Math.Max(0, max));
+
         if (_thumbnailController != null)
         {
             var existingIndices = _thumbnailController.GetExistingThumbnailIndices().ToList();
-            
+
             foreach (var i in existingIndices)
             {
                 if (token.IsCancellationRequested) return;
                 if (i > max) break;
-                
+
                 var thumb = _thumbnailController.GetExistingThumbnail(i);
                 if (thumb != null)
                 {
-                    var item = CreateThumbnailElement(thumb, i, 180);
+                    var item = CreateThumbnailElement(thumb, i, 180, i == currentPageIndex);
                     _dispatcher.Invoke(() =>
                     {
                         if (_catalogOverlay.Visibility == Visibility.Visible)
@@ -113,24 +116,20 @@ public class CatalogController : IDisposable
                         }
                     });
                 }
-                
-                // UI 応答性のため
+
                 if (i % 20 == 0) await Task.Yield();
             }
         }
-        
-        // フェーズ2: 残りのサムネイルを非同期生成
-        var existingSet = _thumbnailController != null 
-            ? new HashSet<int>(_thumbnailController.GetExistingThumbnailIndices()) 
-            : new HashSet<int>();
-        
+
+        var existingSet = _thumbnailController != null
+            ? new HashSet<int>(_thumbnailController.GetExistingThumbnailIndices())
+            : [];
+
         for (int i = 0; i <= max; i++)
         {
             if (token.IsCancellationRequested) return;
-            
-            // 既に表示済みならスキップ
             if (existingSet.Contains(i)) continue;
-            
+
             BitmapSource? thumb = null;
             try
             {
@@ -146,7 +145,7 @@ public class CatalogController : IDisposable
 
             if (thumb != null)
             {
-                var item = CreateThumbnailElement(thumb, i, 180);
+                var item = CreateThumbnailElement(thumb, i, 180, i == currentPageIndex);
                 _dispatcher.Invoke(() =>
                 {
                     if (_catalogOverlay.Visibility == Visibility.Visible)
@@ -173,20 +172,45 @@ public class CatalogController : IDisposable
     /// サムネイルを表示するための UI 要素（ボタン）を生成します。
     /// クリック時には該当ページにジャンプし、カタログを閉じてウィンドウにフォーカスを戻します。
     /// </summary>
-    private Button CreateThumbnailElement(BitmapSource source, int index, double width)
+    private Button CreateThumbnailElement(BitmapSource source, int index, double width, bool isSelected)
     {
+        var thumbnailBorder = new Border
+        {
+            Padding = new Thickness(2),
+            CornerRadius = new CornerRadius(8),
+            BorderThickness = new Thickness(3),
+            BorderBrush = isSelected ? SelectedThumbnailBorderBrush : Brushes.Transparent,
+            Background = isSelected ? SelectedThumbnailBackgroundBrush : Brushes.Transparent,
+            Child = new Image { Source = source, Width = width }
+        };
+
         var btn = new Button
         {
-            Content = new Image { Source = source, Width = width },
+            Content = thumbnailBorder,
             Tag = index,
             Margin = new Thickness(4),
-            BorderThickness = new Thickness(3),
+            Padding = new Thickness(0),
+            BorderThickness = new Thickness(0),
             BorderBrush = Brushes.Transparent,
+            Background = Brushes.Transparent,
             Focusable = false,
             Style = _thumbButtonStyle
         };
 
-        // クリック時の非同期ハンドラ。UI スレッドで安全に呼ばれる
+        btn.MouseEnter += (_, _) =>
+        {
+            if (isSelected) return;
+            thumbnailBorder.BorderBrush = HoverThumbnailBorderBrush;
+            thumbnailBorder.Background = HoverThumbnailBackgroundBrush;
+        };
+
+        btn.MouseLeave += (_, _) =>
+        {
+            if (isSelected) return;
+            thumbnailBorder.BorderBrush = Brushes.Transparent;
+            thumbnailBorder.Background = Brushes.Transparent;
+        };
+
         btn.Click += async (s, _) =>
         {
             try
@@ -194,7 +218,6 @@ public class CatalogController : IDisposable
                 await _jumpToPageAsync((int)btn.Tag!);
             }
             catch { }
-            // カタログを閉じてフォーカスを戻す
             _dispatcher.Invoke(() => _catalogOverlay.Visibility = Visibility.Collapsed);
             _focusWindow();
         };

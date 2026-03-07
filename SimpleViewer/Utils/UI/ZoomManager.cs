@@ -9,12 +9,10 @@ namespace SimpleViewer.Utils.UI;
 /// </summary>
 public class ZoomManager
 {
-    // ズームのステップ幅（±単位）
     private const double ZoomStep = 0.1;
-    // 最大ズーム倍率
     private const double MaxZoom = 10.0;
-    // 最小ズーム倍率
     private const double MinZoom = 0.1;
+    private const double FitPageSafetyMargin = 2.0;
 
     /// <summary>
     /// 現在のズーム倍率（1.0 = 100%）。外部からの設定は SetZoom 経由で行う。
@@ -42,7 +40,6 @@ public class ZoomManager
     {
         ZoomFactor = Math.Clamp(factor, MinZoom, MaxZoom);
         CurrentMode = mode;
-        // 変更を通知
         ZoomChanged?.Invoke(this, EventArgs.Empty);
     }
 
@@ -99,7 +96,14 @@ public class ZoomManager
                 break;
             case ZoomMode.FitPage:
                 // 幅・高さの比率の小さい方に合わせる（ページ全体が収まるように）
-                newFactor = Math.Min(viewSize.Width / contentSize.Width, viewSize.Height / contentSize.Height);
+                double fitPageWidth = Math.Max(0, viewSize.Width - FitPageSafetyMargin);
+                double fitPageHeight = Math.Max(0, viewSize.Height - FitPageSafetyMargin);
+                if (fitPageWidth <= 0 || fitPageHeight <= 0)
+                {
+                    return;
+                }
+
+                newFactor = Math.Min(fitPageWidth / contentSize.Width, fitPageHeight / contentSize.Height);
                 break;
             case ZoomMode.Manual:
                 // 手動モードでは再計算しない

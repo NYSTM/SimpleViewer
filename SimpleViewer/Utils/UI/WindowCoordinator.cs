@@ -140,6 +140,7 @@ public class WindowCoordinator
 
         _catalogController ??= new CatalogController(
             _catalogPanel, _catalogOverlay, () => (int)_pageSlider.Maximum,
+            () => (int)_pageSlider.Value,
             async (index, size, token) => await presenter.GetThumbnailAsync(index, size, token),
             async (pageIndex) => await presenter.JumpToPageAsync(pageIndex),
             _buttonStyle, _dispatcher, () => _window.Focus(), _sidebarManager.ThumbnailController);

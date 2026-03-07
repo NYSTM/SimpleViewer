@@ -86,15 +86,13 @@ public class MainWindowViewImplementation : IView
             _owner.Dispatcher.Invoke(() => SetImages(left, right));
             return;
         }
-        
+
         _imageLeft.Source = left;
         _imageRight.Source = right;
         _imageRight.Visibility = (right == null) ? Visibility.Collapsed : Visibility.Visible;
         _mainScrollViewer.ScrollToHome();
-        
-        _onViewSizeChangedCallback(
-            () => new Size(_mainScrollViewer.ActualWidth - 4, _mainScrollViewer.ActualHeight - 4),
-            GetContentSize);
+
+        _onViewSizeChangedCallback(GetViewSize, GetContentSize);
     }
 
     /// <summary>
@@ -111,7 +109,7 @@ public class MainWindowViewImplementation : IView
             _owner.Dispatcher.Invoke(() => UpdateProgress(current, total));
             return;
         }
-        
+
         _statusText.Text = $"{current} / {total}";
         _pageSlider.Maximum = Math.Max(0, total - 1);
         _pageSlider.Value = current - 1;
@@ -149,7 +147,7 @@ public class MainWindowViewImplementation : IView
             _owner.Dispatcher.Invoke(() => ShowError(message));
             return;
         }
-        
+
         MessageBox.Show(_owner, message, "SimpleViewer", MessageBoxButton.OK, MessageBoxImage.Warning);
     }
 
@@ -167,6 +165,23 @@ public class MainWindowViewImplementation : IView
             SimpleViewer.Models.DisplayMode.SpreadLTR => "見開き(左)",
             _ => "---"
         };
+    }
+
+    /// <summary>
+    /// ビューサイズを取得します。
+    /// </summary>
+    /// <returns>ビューサイズ</returns>
+    private Size GetViewSize()
+    {
+        double width = _mainScrollViewer.ViewportWidth > 0
+            ? _mainScrollViewer.ViewportWidth
+            : _mainScrollViewer.ActualWidth;
+
+        double height = _mainScrollViewer.ViewportHeight > 0
+            ? _mainScrollViewer.ViewportHeight
+            : _mainScrollViewer.ActualHeight;
+
+        return new Size(Math.Max(0, width), Math.Max(0, height));
     }
 
     /// <summary>

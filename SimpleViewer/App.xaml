@@ -4,5 +4,28 @@
              xmlns:local="clr-namespace:SimpleViewer"
              Startup="OnStartup">
     <Application.Resources>
+        <Color x:Key="WindowBackgroundColor">#FFF3F6FB</Color>
+        <Color x:Key="SurfaceColor">#FFFFFFFF</Color>
+        <Color x:Key="SurfaceAltColor">#FFF7F9FC</Color>
+        <Color x:Key="SurfaceStrongColor">#FFEEF3F9</Color>
+        <Color x:Key="BorderColor">#FFD7DFEA</Color>
+        <Color x:Key="AccentColor">#FF2563EB</Color>
+        <Color x:Key="AccentHoverColor">#FF1D4ED8</Color>
+        <Color x:Key="ViewerBackgroundColor">#FF0F172A</Color>
+        <Color x:Key="TextColor">#FF0F172A</Color>
+        <Color x:Key="MutedTextColor">#FF64748B</Color>
+        <Color x:Key="OverlayColor">#CC0F172A</Color>
+
+        <SolidColorBrush x:Key="WindowBackgroundBrush" Color="{StaticResource WindowBackgroundColor}"/>
+        <SolidColorBrush x:Key="SurfaceBrush" Color="{StaticResource SurfaceColor}"/>
+        <SolidColorBrush x:Key="SurfaceAltBrush" Color="{StaticResource SurfaceAltColor}"/>
+        <SolidColorBrush x:Key="SurfaceStrongBrush" Color="{StaticResource SurfaceStrongColor}"/>
+        <SolidColorBrush x:Key="BorderBrush" Color="{StaticResource BorderColor}"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource AccentColor}"/>
+        <SolidColorBrush x:Key="AccentHoverBrush" Color="{StaticResource AccentHoverColor}"/>
+        <SolidColorBrush x:Key="ViewerBackgroundBrush" Color="{StaticResource ViewerBackgroundColor}"/>
+        <SolidColorBrush x:Key="TextBrush" Color="{StaticResource TextColor}"/>
+        <SolidColorBrush x:Key="MutedTextBrush" Color="{StaticResource MutedTextColor}"/>
+        <SolidColorBrush x:Key="OverlayBrush" Color="{StaticResource OverlayColor}"/>
     </Application.Resources>
 </Application>
