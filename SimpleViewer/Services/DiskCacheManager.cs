@@ -1,12 +1,13 @@
 ﻿using System.IO;
 using System.Security.Cryptography;
+using System.Text;
 
 namespace SimpleViewer.Services;
 
 /// <summary>
 /// ディスクキャッシュの管理を担当するクラス。
-/// - ファイルの読み書き、削除、容量管理を行います
-/// - セキュア削除機能を提供します
+/// ソースごとにサブフォルダを作成して、効率的な削除を実現します。
+/// セキュリティのため、不要なキャッシュは即座に削除します。
 /// </summary>
 public class DiskCacheManager
 {
@@ -14,9 +15,12 @@ public class DiskCacheManager
     private readonly long _maxCacheBytes;
     private readonly bool _useSecureDelete;
     private readonly object _diskLock = new();
+    
+    // 現在のソース用のサブフォルダ名
+    private string? _currentSourceFolder;
 
     /// <summary>
-    /// DiskCacheManagerを初期化します。
+    /// DiskCacheManager を初期化します。
     /// </summary>
     /// <param name="cacheDirectory">キャッシュディレクトリのパス</param>
     /// <param name="maxCacheMB">最大キャッシュサイズ（MB）。0以下は無制限</param>
@@ -41,31 +45,100 @@ public class DiskCacheManager
             if (!Directory.Exists(_cacheDirectory))
             {
                 Directory.CreateDirectory(_cacheDirectory);
-                System.Diagnostics.Debug.WriteLine($"[DiskCacheManager] キャッシュディレクトリを作成しました: {_cacheDirectory}");
             }
         }
-        catch (Exception ex)
+        catch
         {
-            System.Diagnostics.Debug.WriteLine($"[DiskCacheManager] キャッシュディレクトリの作成に失敗しました: {ex.Message}");
-            // ディレクトリ作成失敗は致命的ではないが、ログに記録
+            // ディレクトリ作成失敗は致命的ではないため無視
         }
     }
-
+    
+    /// <summary>
+    /// ソース識別子からサブフォルダ名を生成します。
+    /// 完全なパスから SHA256 ハッシュを生成し、一意性を保証します。
+    /// ハッシュの最初の 16 文字を使用して、パス長を短縮します。
+    /// </summary>
+    /// <param name="sourceIdentifier">ソース識別子（フルパス）</param>
+    /// <returns>サブフォルダ名（16文字のハッシュ）</returns>
+    private static string GetSourceFolderName(string sourceIdentifier)
+    {
+        // 完全なパスからハッシュ値を生成（一意性を保証）
+        var bytes = Encoding.UTF8.GetBytes(sourceIdentifier);
+        var hash = SHA256.HashData(bytes);
+        
+        // 16文字に短縮（8バイト = 64ビット）
+        return Convert.ToHexString(hash)[..16];
+    }
+    
+    /// <summary>
+    /// 現在のソース用のサブフォルダを設定します。
+    /// 以前のソースのサブフォルダは即座に削除されます（セキュリティ）。
+    /// </summary>
+    /// <param name="sourceIdentifier">ソース識別子</param>
+    public void SetCurrentSource(string sourceIdentifier)
+    {
+        var newFolder = GetSourceFolderName(sourceIdentifier);
+        
+        lock (_diskLock)
+        {
+            // 以前のソースフォルダを削除（同一ソースでない場合）
+            if (_currentSourceFolder != null && _currentSourceFolder != newFolder)
+            {
+                try
+                {
+                    var oldPath = Path.Combine(_cacheDirectory, _currentSourceFolder);
+                    if (Directory.Exists(oldPath))
+                    {
+                        Directory.Delete(oldPath, recursive: true);
+                    }
+                }
+                catch
+                {
+                    // 削除失敗は無視
+                }
+            }
+            
+            _currentSourceFolder = newFolder;
+            
+            // 新しいソースのサブフォルダを作成
+            var newPath = Path.Combine(_cacheDirectory, newFolder);
+            try
+            {
+                if (!Directory.Exists(newPath))
+                {
+                    Directory.CreateDirectory(newPath);
+                }
+            }
+            catch
+            {
+                // ディレクトリ作成失敗は無視
+            }
+        }
+    }
+    
     /// <summary>
     /// 指定されたキーに対応するファイルパスを取得します。
+    /// 現在のソースのサブフォルダ内に配置されます。
     /// </summary>
     /// <param name="key">キャッシュキー</param>
     /// <returns>ファイルパス</returns>
     public string GetFilePath(string key)
     {
-        return Path.Combine(_cacheDirectory, key + ".thumb");
+        if (_currentSourceFolder == null)
+        {
+            // フォールバック: ルートディレクトリ
+            return Path.Combine(_cacheDirectory, key + ".thumb");
+        }
+        
+        var sourceFolder = Path.Combine(_cacheDirectory, _currentSourceFolder);
+        return Path.Combine(sourceFolder, key + ".thumb");
     }
 
     /// <summary>
     /// ファイルが存在するかどうかを確認します。
     /// </summary>
     /// <param name="filePath">ファイルパス</param>
-    /// <returns>ファイルが存在する場合はtrue</returns>
+    /// <returns>ファイルが存在する場合は true</returns>
     public bool FileExists(string filePath)
     {
         return File.Exists(filePath);
@@ -73,74 +146,59 @@ public class DiskCacheManager
 
     /// <summary>
     /// すべてのキャッシュファイルを削除します。
+    /// 現在のソースのサブフォルダのみを削除します（高速）。
     /// </summary>
     public void ClearAllCache()
     {
         lock (_diskLock)
         {
+            if (_currentSourceFolder == null) return;
+            
             try
             {
-                var di = new DirectoryInfo(_cacheDirectory);
-                if (!di.Exists) return;
-
-                foreach (var f in di.GetFiles("*.thumb"))
+                var sourcePath = Path.Combine(_cacheDirectory, _currentSourceFolder);
+                if (Directory.Exists(sourcePath))
                 {
-                    DeleteFile(f.FullName);
+                    Directory.Delete(sourcePath, recursive: true);
+                    
+                    // サブフォルダを再作成
+                    Directory.CreateDirectory(sourcePath);
                 }
             }
-            catch { /* 無視 */ }
+            catch
+            {
+                // 削除失敗は無視
+            }
         }
     }
 
     /// <summary>
     /// すべてのキャッシュファイルを非同期で削除します。
+    /// 現在のソースのサブフォルダのみを削除します（高速）。
     /// </summary>
     /// <param name="ct">キャンセルトークン</param>
     public Task ClearAllCacheAsync(CancellationToken ct = default)
     {
         return Task.Run(() =>
         {
-            string[] targetFiles;
             lock (_diskLock)
             {
-                var di = new DirectoryInfo(_cacheDirectory);
-                if (!di.Exists) return;
-
-                // GetFiles("*.thumb") は呼び出した瞬間に配列を生成するため、
-                // これ以降に作成されたファイルはリストに含まれない（保護される）。
-                targetFiles = di.GetFiles("*.thumb")
-                                .Select(f => f.FullName)
-                                .ToArray();
-            }
-
-            // lockの外で実行することで、ファイルシステムへの負荷を分散し、UI応答性も維持する
-            foreach (var filePath in targetFiles)
-            {
-                // 高速なキャンセレーション
-                if (ct.IsCancellationRequested) break;
-
+                if (_currentSourceFolder == null) return;
+                
                 try
                 {
-                    // 別のスレッドが使用中の場合は IOException が発生するが、
-                    // catchして続行することで「消せるものだけ全部消す」一括処理を実現
-                    DeleteFile(filePath);
+                    var sourcePath = Path.Combine(_cacheDirectory, _currentSourceFolder);
+                    if (Directory.Exists(sourcePath))
+                    {
+                        Directory.Delete(sourcePath, recursive: true);
+                        
+                        // サブフォルダを再作成
+                        Directory.CreateDirectory(sourcePath);
+                    }
                 }
-                catch (IOException)
+                catch
                 {
-                    // 使用中のファイルは無視して次に進む
-                }
-                catch (UnauthorizedAccessException)
-                {
-                    // 権限エラーも同様
-                }
-                catch (OperationCanceledException)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    // 予期せぬエラーは診断用に記録
-                    Console.WriteLine($"Delete failed: {filePath}, {ex.Message}");
+                    // 削除失敗は無視
                 }
             }
         }, ct);
@@ -169,6 +227,7 @@ public class DiskCacheManager
     /// <summary>
     /// ディスクキャッシュの容量を制限内に収めます。
     /// 容量超過時は古いファイルから削除します。
+    /// 現在のソースのサブフォルダのみを対象とします。
     /// </summary>
     public void EnforceDiskCapacity()
     {
@@ -176,9 +235,12 @@ public class DiskCacheManager
 
         lock (_diskLock)
         {
+            if (_currentSourceFolder == null) return;
+            
             try
             {
-                var di = new DirectoryInfo(_cacheDirectory);
+                var sourcePath = Path.Combine(_cacheDirectory, _currentSourceFolder);
+                var di = new DirectoryInfo(sourcePath);
                 if (!di.Exists) return;
 
                 var files = di.GetFiles("*.thumb")
@@ -199,7 +261,7 @@ public class DiskCacheManager
                     catch { /* 削除失敗はスキップ */ }
                 }
             }
-            catch { /* 無視 */ }
+            catch { /* エラーは無視 */ }
         }
     }
 

@@ -8,9 +8,7 @@ namespace SimpleViewer.Presenters.Controllers;
 
 /// <summary>
 /// カタログ表示（サムネイル一覧）の生成と表示制御を担当するコントローラークラス。
-/// - サムネイル読み込みは非同期で実行し、UI 更新は必ず Dispatcher 経由で行う。
-/// - 表示中の生成処理は CancellationToken によるキャンセル可能とし、不要な処理を中断する。
-/// - MainWindow や UI 要素への直接依存は最小限に抑え、テストしやすくする。
+/// ThumbnailController で既に生成されたサムネイルを再利用して高速化します。
 /// </summary>
 public class CatalogController : IDisposable
 {
@@ -22,6 +20,9 @@ public class CatalogController : IDisposable
     private readonly Style _thumbButtonStyle;
     private readonly Dispatcher _dispatcher;
     private readonly Action _focusWindow;
+    
+    // ThumbnailController への参照を追加（サムネイル共有のため）
+    private readonly ThumbnailController? _thumbnailController;
 
     // 表示中のサムネイル生成をキャンセルするための CTS
     private CancellationTokenSource? _cts;
@@ -34,7 +35,8 @@ public class CatalogController : IDisposable
         Func<int, Task> jumpToPageAsync,
         Style thumbButtonStyle,
         Dispatcher dispatcher,
-        Action focusWindow)
+        Action focusWindow,
+        ThumbnailController? thumbnailController = null)
     {
         _catalogPanel = catalogPanel ?? throw new ArgumentNullException(nameof(catalogPanel));
         _catalogOverlay = catalogOverlay ?? throw new ArgumentNullException(nameof(catalogOverlay));
@@ -44,6 +46,7 @@ public class CatalogController : IDisposable
         _thumbButtonStyle = thumbButtonStyle ?? new Style(typeof(Button));
         _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         _focusWindow = focusWindow ?? throw new ArgumentNullException(nameof(focusWindow));
+        _thumbnailController = thumbnailController;
     }
 
     /// <summary>
@@ -69,9 +72,7 @@ public class CatalogController : IDisposable
 
     /// <summary>
     /// カタログを表示し、ページごとにサムネイルを非同期で生成して UI に追加します。
-    /// - 以前の生成処理があればキャンセルしてから開始します。
-    /// - サムネイル生成はキャンセル可能で、失敗は無視して次に進みます（柔軟性）。
-    /// - UI 更新は Dispatcher.Invoke を使って UI スレッドで行います。
+    /// ThumbnailController で既に生成されたサムネイルを優先的に使用して高速化します。
     /// </summary>
     public async Task ShowAsync()
     {
@@ -89,33 +90,65 @@ public class CatalogController : IDisposable
         var token = _cts.Token;
 
         int max = _getPageMaximum();
-        // 0..max の範囲でサムネイルを生成していく
+        
+        // フェーズ1: 既存のサムネイルを高速表示
+        if (_thumbnailController != null)
+        {
+            var existingIndices = _thumbnailController.GetExistingThumbnailIndices().ToList();
+            
+            foreach (var i in existingIndices)
+            {
+                if (token.IsCancellationRequested) return;
+                if (i > max) break;
+                
+                var thumb = _thumbnailController.GetExistingThumbnail(i);
+                if (thumb != null)
+                {
+                    var item = CreateThumbnailElement(thumb, i, 180);
+                    _dispatcher.Invoke(() =>
+                    {
+                        if (_catalogOverlay.Visibility == Visibility.Visible)
+                        {
+                            _catalogPanel.Children.Add(item);
+                        }
+                    });
+                }
+                
+                // UI 応答性のため
+                if (i % 20 == 0) await Task.Yield();
+            }
+        }
+        
+        // フェーズ2: 残りのサムネイルを非同期生成
+        var existingSet = _thumbnailController != null 
+            ? new HashSet<int>(_thumbnailController.GetExistingThumbnailIndices()) 
+            : new HashSet<int>();
+        
         for (int i = 0; i <= max; i++)
         {
-            if (token.IsCancellationRequested) return; // キャンセル確認
+            if (token.IsCancellationRequested) return;
+            
+            // 既に表示済みならスキップ
+            if (existingSet.Contains(i)) continue;
+            
             BitmapSource? thumb = null;
             try
             {
-                // サムネイル生成は外部サービスに委譲し、キャンセル可能にする
                 thumb = await _getThumbnailAsync(i, 200, token);
             }
             catch (OperationCanceledException) { return; }
             catch (Exception)
             {
-                // 柔軟性: サムネイル取得失敗はログに出力せず次に進む
                 thumb = null;
             }
 
-            // 取得後にもキャンセルを再確認し、不要な追加を防ぐ
             if (token.IsCancellationRequested) return;
 
             if (thumb != null)
             {
                 var item = CreateThumbnailElement(thumb, i, 180);
-                // UI 更新は Dispatcher 経由で行う
                 _dispatcher.Invoke(() =>
                 {
-                    // 再度カタログが表示中か確認してから追加
                     if (_catalogOverlay.Visibility == Visibility.Visible)
                     {
                         _catalogPanel.Children.Add(item);
@@ -123,7 +156,6 @@ public class CatalogController : IDisposable
                 });
             }
 
-            // 大量のページがある場合に UI スレッドがスターベーションしないよう適宜 Yield
             if (i % 10 == 0) await Task.Yield();
         }
     }

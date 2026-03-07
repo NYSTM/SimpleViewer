@@ -74,11 +74,19 @@ public class MainWindowViewImplementation : IView
 
     /// <summary>
     /// 画像を設定します。
+    /// UI スレッドで実行されることを保証します。
     /// </summary>
     /// <param name="left">左側画像</param>
     /// <param name="right">右側画像</param>
     public void SetImages(BitmapSource? left, BitmapSource? right)
     {
+        // UI スレッドで実行されることを保証
+        if (!_owner.Dispatcher.CheckAccess())
+        {
+            _owner.Dispatcher.Invoke(() => SetImages(left, right));
+            return;
+        }
+        
         _imageLeft.Source = left;
         _imageRight.Source = right;
         _imageRight.Visibility = (right == null) ? Visibility.Collapsed : Visibility.Visible;
@@ -91,11 +99,19 @@ public class MainWindowViewImplementation : IView
 
     /// <summary>
     /// 進捗情報を更新します。
+    /// UI スレッドで実行されることを保証します。
     /// </summary>
     /// <param name="current">現在のページ番号（1始まり）</param>
     /// <param name="total">総ページ数</param>
     public void UpdateProgress(int current, int total)
     {
+        // UI スレッドで実行されることを保証
+        if (!_owner.Dispatcher.CheckAccess())
+        {
+            _owner.Dispatcher.Invoke(() => UpdateProgress(current, total));
+            return;
+        }
+        
         _statusText.Text = $"{current} / {total}";
         _pageSlider.Maximum = Math.Max(0, total - 1);
         _pageSlider.Value = current - 1;
@@ -122,10 +138,18 @@ public class MainWindowViewImplementation : IView
 
     /// <summary>
     /// エラーメッセージを表示します。
+    /// UI スレッドで実行されることを保証します。
     /// </summary>
     /// <param name="message">エラーメッセージ</param>
     public void ShowError(string message)
     {
+        // UI スレッドで実行されることを保証
+        if (!_owner.Dispatcher.CheckAccess())
+        {
+            _owner.Dispatcher.Invoke(() => ShowError(message));
+            return;
+        }
+        
         MessageBox.Show(_owner, message, "SimpleViewer", MessageBoxButton.OK, MessageBoxImage.Warning);
     }
 

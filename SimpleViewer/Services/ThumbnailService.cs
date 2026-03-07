@@ -9,10 +9,17 @@ namespace SimpleViewer.Services;
 
 /// <summary>
 /// サムネイル生成とキャッシュを担当するサービス。
-/// - メモリキャッシュとディスクキャッシュを管理します
-/// - 同時実行数を制限してリソースを制御します
-/// - 同一キーに対する重複生成を抑制します
+/// メモリキャッシュとディスクキャッシュを使用してパフォーマンスを最適化します。
 /// </summary>
+/// <remarks>
+/// <para>主な機能:</para>
+/// <list type="bullet">
+/// <item><description>メモリキャッシュとディスクキャッシュの二段階キャッシュ</description></item>
+/// <item><description>同時実行数の制限によるリソース制御</description></item>
+/// <item><description>同一キーに対する重複生成の抑制</description></item>
+/// <item><description>キャンセルトークンによる進行中タスクの管理</description></item>
+/// </list>
+/// </remarks>
 public class ThumbnailService : IDisposable
 {
     private readonly ConcurrentDictionary<string, BitmapSource> _memoryCache = new();
@@ -23,6 +30,9 @@ public class ThumbnailService : IDisposable
 
     // 同時に生成中のキーを管理して重複生成を抑制する
     private readonly ConcurrentDictionary<string, Task<BitmapSource?>> _inFlightTasks = new();
+    
+    // サムネイル生成をキャンセルするためのトークンソース
+    private CancellationTokenSource _generationCts = new();
 
     // メモリキャッシュ操作のためのロック
     private readonly object _memoryLock = new();
@@ -35,7 +45,7 @@ public class ThumbnailService : IDisposable
     private readonly bool _clearDiskOnClear;
 
     /// <summary>
-    /// ThumbnailServiceを初期化します。
+    /// ThumbnailService を初期化します。
     /// </summary>
     /// <param name="imageDecoder">オプションのイメージデコーダ</param>
     public ThumbnailService(IImageDecoder? imageDecoder = null)
@@ -55,17 +65,21 @@ public class ThumbnailService : IDisposable
         _fileHandler = new BitmapFileHandler(imageDecoder);
         _clearDiskOnClear = settings.ThumbnailClearDiskOnClear;
 
-        // CPU コア数に基づいて同時実行数を設定（最小8、最大32）
-        int maxDegreeOfParallelism = Math.Clamp(Environment.ProcessorCount * 2, 8, 32);
+        // CPU コア数に基づいて同時実行数を設定
+        // UI 応答性を維持するため、控えめな並列度に設定（最小4、最大16）
+        int maxDegreeOfParallelism = Math.Clamp(Environment.ProcessorCount, 4, 16);
         _concurrencySemaphore = new SemaphoreSlim(maxDegreeOfParallelism);
-
-        Debug.WriteLine($"[ThumbnailService] 初期化完了: 並列度={maxDegreeOfParallelism}, CacheDir={cacheDir}, MaxMB={settings.ThumbnailCacheMaxMB}");
     }
 
     /// <summary>
     /// 指定のソース・インデックスからサムネイルを取得します。
     /// 同一キーに対する重複生成は内部で集約されます。
     /// </summary>
+    /// <param name="source">画像ソース</param>
+    /// <param name="index">ページインデックス</param>
+    /// <param name="width">要求幅（ピクセル）</param>
+    /// <param name="ct">キャンセルトークン</param>
+    /// <returns>サムネイル画像、失敗時は null</returns>
     public async Task<BitmapSource?> GetThumbnailAsync(
         IImageSource source,
         int index,
@@ -74,6 +88,9 @@ public class ThumbnailService : IDisposable
     {
         try
         {
+            // ディスクキャッシュに現在のソースを設定
+            _diskCacheManager.SetCurrentSource(source.SourceIdentifier);
+            
             var key = CacheKeyGenerator.MakeCacheKey(source, index);
 
             // メモリキャッシュを確認
@@ -98,12 +115,10 @@ public class ThumbnailService : IDisposable
         }
         catch (OperationCanceledException)
         {
-            // キャンセルは正常な動作なのでログ出力しない
             return null;
         }
-        catch (Exception ex)
+        catch
         {
-            Debug.WriteLine($"[ThumbnailService] エラー: index={index}, {ex.Message}");
             return null;
         }
     }
@@ -118,8 +133,12 @@ public class ThumbnailService : IDisposable
         string key,
         CancellationToken ct)
     {
+        // 外部キャンセルトークンと内部キャンセルトークンを組み合わせる
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, _generationCts.Token);
+        var linkedToken = linkedCts.Token;
+        
         // ディスクキャッシュを確認
-        var diskCached = await TryGetFromDiskCacheAsync(key, width, ct).ConfigureAwait(false);
+        var diskCached = await TryGetFromDiskCacheAsync(key, width, linkedToken).ConfigureAwait(false);
         if (diskCached != null)
         {
             AddToMemoryCache(key, diskCached);
@@ -127,7 +146,7 @@ public class ThumbnailService : IDisposable
         }
 
         // サムネイルを生成
-        var result = await GenerateThumbnailAsync(source, index, width, key, ct).ConfigureAwait(false);
+        var result = await GenerateThumbnailAsync(source, index, width, key, linkedToken).ConfigureAwait(false);
         return result;
     }
 
@@ -163,6 +182,13 @@ public class ThumbnailService : IDisposable
     /// </summary>
     public void ClearAllCache()
     {
+        // 進行中のサムネイル生成をキャンセル
+        _generationCts?.Cancel();
+        _generationCts = new CancellationTokenSource();
+        
+        // 進行中のタスクをクリア
+        _inFlightTasks.Clear();
+        
         ClearMemoryCache();
         _diskCacheManager.ClearAllCache();
     }
@@ -172,6 +198,13 @@ public class ThumbnailService : IDisposable
     /// </summary>
     public async Task ClearAllCacheAsync(CancellationToken ct = default)
     {
+        // 進行中のサムネイル生成をキャンセル
+        _generationCts?.Cancel();
+        _generationCts = new CancellationTokenSource();
+        
+        // 進行中のタスクをクリア
+        _inFlightTasks.Clear();
+        
         ClearMemoryCache();
         await _diskCacheManager.ClearAllCacheAsync(ct).ConfigureAwait(false);
     }
@@ -229,6 +262,7 @@ public class ThumbnailService : IDisposable
 
     /// <summary>
     /// サムネイルを生成します。
+    /// UI 応答性を維持するため、バックグラウンド優先度で実行します。
     /// </summary>
     private async Task<BitmapSource?> GenerateThumbnailAsync(
         IImageSource source,
@@ -243,6 +277,9 @@ public class ThumbnailService : IDisposable
         {
             ct.ThrowIfCancellationRequested();
 
+            // UI 応答性を維持するため、短い遅延を入れる
+            await Task.Delay(5, ct).ConfigureAwait(false);
+
             // 実際のサムネイル生成をソースに委譲
             var thumb = await source.GetThumbnailAsync(index, width).ConfigureAwait(false);
             if (thumb == null)
@@ -252,10 +289,16 @@ public class ThumbnailService : IDisposable
 
             if (thumb.CanFreeze) thumb.Freeze();
 
-            // メモリキャッシュに登録
-            AddToMemoryCache(key, thumb);
+            // キャッシュキーが現在のソースと一致する場合のみメモリキャッシュに登録
+            // （フォルダ切り替え後に古いタスクが完了した場合を防ぐ）
+            var currentKey = CacheKeyGenerator.MakeCacheKey(source, index);
+            if (currentKey == key)
+            {
+                AddToMemoryCache(key, thumb);
+            }
 
             // ディスクへ書き込む（非同期で実行）
+            // ディスクキャッシュは保持しても問題ない（次回読み込み時に高速化）
             _ = Task.Run(() =>
             {
                 try
@@ -312,6 +355,8 @@ public class ThumbnailService : IDisposable
     /// </summary>
     public void Dispose()
     {
+        _generationCts?.Cancel();
+        _generationCts?.Dispose();
         _concurrencySemaphore?.Dispose();
         GC.SuppressFinalize(this);
     }

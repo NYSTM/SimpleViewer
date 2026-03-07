@@ -106,10 +106,11 @@ public partial class MainWindow : Window
             _titleBarManager);
 
         // CloseSourceコールバックをWindowCoordinatorに設定
-        _coordinator.SetCloseSourceCallback(() =>
+        _coordinator.SetCloseSourceCallback(async () =>
         {
             ClearUI();
-            _fileOpenHandler.CloseSource();
+            await _presenter.CloseSourceAsync();
+            _fileOpenHandler.ClearCurrentSource();
         });
 
         // ViewImplementationにFileOpenHandlerを設定
@@ -129,7 +130,8 @@ public partial class MainWindow : Window
         // ドラッグ&ドロップハンドラーを初期化
         _dragDropHandler = new DragDropHandler(
             openFileCallback: OpenSourceAsync,
-            focusWindowCallback: FocusWindow);
+            focusWindowCallback: FocusWindow,
+            isLoadingCallback: () => _presenter.IsLoadingSource);
 
         // マウスジェスチャーハンドラーを初期化
         _mouseGestureHandler = new MouseGestureHandler(
@@ -219,6 +221,9 @@ public partial class MainWindow : Window
     {
         try
         {
+            // ロード中のカーソルを設定
+            Mouse.OverrideCursor = Cursors.Wait;
+            
             // カタログが開いている場合は閉じる
             try { _coordinator.CloseCatalog(); } catch { }
 
@@ -227,6 +232,11 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             _viewImplementation.ShowError(ex.Message);
+        }
+        finally
+        {
+            // カーソルを元に戻す
+            Mouse.OverrideCursor = null;
         }
     }
 
@@ -252,8 +262,8 @@ public partial class MainWindow : Window
     private async void MenuOpen_Click(object sender, RoutedEventArgs e) =>
         await _menuHandler.HandleMenuOpenClickAsync();
 
-    private void MenuClose_Click(object sender, RoutedEventArgs e) =>
-        _menuHandler.HandleMenuCloseClick();
+    private async void MenuClose_Click(object sender, RoutedEventArgs e) =>
+        await _menuHandler.HandleMenuCloseClickAsync();
 
     private void MenuExit_Click(object sender, RoutedEventArgs e) =>
         _menuHandler.HandleMenuExitClick();

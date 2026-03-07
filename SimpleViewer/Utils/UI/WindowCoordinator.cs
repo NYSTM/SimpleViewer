@@ -177,14 +177,14 @@ public class WindowCoordinator
 
     /// <summary>
     /// ソースを閉じるコールバックを設定します。
-    /// FileOpenHandlerが初期化された後に呼び出されます。
+    /// FileOpenHandler が初期化された後に呼び出されます。
     /// </summary>
     /// <param name="closeSourceCallback">ソースを閉じるコールバック</param>
-    public void SetCloseSourceCallback(Action closeSourceCallback)
+    public void SetCloseSourceCallback(Func<Task> closeSourceCallback)
     {
-        _closeSourceCallback = closeSourceCallback;
+        _closeSourceCallback = () => _ = closeSourceCallback();
         
-        // InputHandlerが既に初期化されている場合は再作成
+        // InputHandler が既に初期化されている場合は再作成
         if (_inputHandler != null && _presenter != null)
         {
             _inputHandler = new InputHandler(
@@ -234,7 +234,7 @@ public class WindowCoordinator
             );
         }
 
-        // CatalogControllerの初期化
+        // CatalogControllerの初期化（ThumbnailController を渡して共有を有効化）
         if (_catalogController == null)
         {
             _catalogController = new CatalogController(
@@ -245,7 +245,8 @@ public class WindowCoordinator
                 async (pageIndex) => await presenter.JumpToPageAsync(pageIndex),
                 _buttonStyle,
                 _dispatcher,
-                () => _window.Focus()
+                () => _window.Focus(),
+                _sidebarManager.ThumbnailController  // サムネイル共有のため
             );
         }
 

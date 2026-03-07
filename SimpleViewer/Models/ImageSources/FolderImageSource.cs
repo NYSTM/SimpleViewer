@@ -55,6 +55,7 @@ public class FolderImageSource : ImageSourceBase, IImageSource
     /// ファイル読み込みとデコードはバックグラウンドスレッドで実行され、UI スレッドをブロックしません。
     /// </summary>
     /// <param name="index">ページインデックス</param>
+    /// <returns>画像、失敗時は null</returns>
     public async Task<BitmapSource?> GetPageImageAsync(int index)
     {
         if (index < 0 || index >= _filePaths.Count) return null;
@@ -65,8 +66,6 @@ public class FolderImageSource : ImageSourceBase, IImageSource
             using var ms = _memoryStreamManager.GetStream();
             
             // FileStream から RecyclableMemoryStream にコピー
-            // デコード中にファイルストリームが閉じられる問題を回避しつつ、
-            // メモリプールの恩恵を受けられる
             using (var fileStream = new FileStream(
                 _filePaths[index],
                 FileMode.Open,
@@ -83,9 +82,8 @@ public class FolderImageSource : ImageSourceBase, IImageSource
             if (bitmap != null && bitmap.CanFreeze) bitmap.Freeze();
             return bitmap;
         }
-        catch (Exception ex)
+        catch
         {
-            Debug.WriteLine($"[FolderImageSource] ページ読み込みエラー {index}: {ex.Message}");
             return null;
         }
     }
@@ -97,6 +95,7 @@ public class FolderImageSource : ImageSourceBase, IImageSource
     /// </summary>
     /// <param name="index">ページインデックス</param>
     /// <param name="width">ターゲット幅（ピクセル）</param>
+    /// <returns>サムネイル画像、失敗時は null</returns>
     public async Task<BitmapSource?> GetThumbnailAsync(int index, int width)
     {
         if (index < 0 || index >= _filePaths.Count) return null;
@@ -104,8 +103,6 @@ public class FolderImageSource : ImageSourceBase, IImageSource
         string filePath = _filePaths[index];
         try
         {
-            Debug.WriteLine($"[FolderImageSource] サムネイル生成開始: index={index}, file={Path.GetFileName(filePath)}, width={width}");
-            
             // RecyclableMemoryStream を使用してメモリプールから取得
             using var ms = _memoryStreamManager.GetStream();
             
@@ -115,33 +112,24 @@ public class FolderImageSource : ImageSourceBase, IImageSource
                 FileMode.Open,
                 FileAccess.Read,
                 FileShare.Read,
-                bufferSize: 4096,
+                bufferSize: 8192,
                 useAsync: true))
             {
                 await fileStream.CopyToAsync(ms).ConfigureAwait(false);
             }
             
-            Debug.WriteLine($"[FolderImageSource] ファイル読み込み完了: {ms.Length} bytes");
-            
             ms.Position = 0;
             var thumb = await _decoder.LoadThumbnailAsync(ms, width).ConfigureAwait(false);
             
-            if (thumb != null)
+            if (thumb != null && thumb.CanFreeze)
             {
-                if (thumb.CanFreeze) thumb.Freeze();
-                Debug.WriteLine($"[FolderImageSource] サムネイル生成成功: {thumb.PixelWidth}x{thumb.PixelHeight}");
-            }
-            else
-            {
-                Debug.WriteLine($"[FolderImageSource] サムネイル生成失敗: デコーダがnullを返しました");
+                thumb.Freeze();
             }
             
             return thumb;
         }
-        catch (Exception ex)
+        catch
         {
-            Debug.WriteLine($"[FolderImageSource] サムネイル読み込みエラー index={index}, file={Path.GetFileName(filePath)}: {ex.GetType().Name} - {ex.Message}");
-            Debug.WriteLine($"[FolderImageSource] スタックトレース: {ex.StackTrace}");
             return null;
         }
     }

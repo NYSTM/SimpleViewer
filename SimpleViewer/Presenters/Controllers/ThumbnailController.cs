@@ -9,9 +9,20 @@ namespace SimpleViewer.Presenters.Controllers;
 
 /// <summary>
 /// サムネイル一覧の構築・更新を担当するコントローラークラス。
-/// Presenter からサムネイル画像を取得して ItemsControl に Button を追加する責務を持ちます。
-/// UI 更新は Dispatcher 経由で実行します。
 /// </summary>
+/// <remarks>
+/// <para>主な責務:</para>
+/// <list type="bullet">
+/// <item><description>サムネイル一覧の構築（バッチ並列処理）</description></item>
+/// <item><description>ハイライト表示の管理</description></item>
+/// <item><description>スクロール位置の自動調整</description></item>
+/// <item><description>サムネイルクリックによるページジャンプ</description></item>
+/// </list>
+/// <para>
+/// サムネイル画像は Presenter から取得し、ItemsControl に Button として追加します。
+/// 大量のサムネイルでもパフォーマンスを維持するため、バッチ処理と非同期更新を活用します。
+/// </para>
+/// </remarks>
 public class ThumbnailController
 {
     // Presenter（サムネイル取得を行う主要ロジック）
@@ -157,10 +168,59 @@ public class ThumbnailController
     /// <summary>
     /// サムネイルをバッチ処理で並列生成します。
     /// UI の応答性を維持しながら効率的にサムネイルを生成します。
-    /// UI 更新はバッチ単位でまとめて行い、ユーザー入力の応答性を維持します。
+    /// 最初の8個は順次生成して即座に表示し、それ以降は並列生成します。
     /// </summary>
     private async Task BuildThumbnailsBatchAsync(int startIndex, int endIndex, int width, int currentPageIndex, CancellationToken token)
     {
+        const int InitialSequentialCount = 8;  // 最初の8個は順次生成
+        
+        // フェーズ1: 最初の8個を順次生成（即座にフィードバック）
+        if (startIndex < InitialSequentialCount)
+        {
+            int sequentialEnd = Math.Min(InitialSequentialCount, endIndex);
+            
+            for (int i = startIndex; i < sequentialEnd; i++)
+            {
+                token.ThrowIfCancellationRequested();
+                
+                try
+                {
+                    var thumb = await _presenter.GetThumbnailAsync(i, width, token).ConfigureAwait(false);
+                    
+                    if (thumb != null)
+                    {
+                        await _dispatcher.InvokeAsync(() =>
+                        {
+                            var btn = new Button
+                            {
+                                Style = _thumbnailButtonStyle,
+                                Content = new Image { Source = thumb },
+                                Tag = i
+                            };
+                            btn.Click += (s, e) => { _ = _jumpToPageCallback(i); };
+                            _sidebarItems[i] = btn;
+                            _thumbnailSidebar.Items.Add(btn);
+                        }, System.Windows.Threading.DispatcherPriority.Normal, token);
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[BuildThumbnailsBatchAsync] サムネイル取得エラー index={i}: {ex.Message}");
+                }
+                
+                // 各サムネイル生成後、短い待機でUIに処理を譲る
+                await Task.Delay(10, token).ConfigureAwait(false);
+            }
+            
+            // 次のフェーズのために開始位置を調整
+            startIndex = sequentialEnd;
+        }
+        
+        // フェーズ2: 残りを並列バッチ処理（高速化）
         for (int batchStart = startIndex; batchStart < endIndex; batchStart += BatchSize)
         {
             token.ThrowIfCancellationRequested();
@@ -178,7 +238,6 @@ public class ThumbnailController
                 }
                 catch (OperationCanceledException)
                 {
-                    // キャンセル時は Success=false でマーク（ログ出力なし）
                     return (Index: i, Thumbnail: (BitmapSource?)null, Success: false);
                 }
                 catch (Exception ex)
@@ -190,79 +249,49 @@ public class ThumbnailController
 
             var results = await Task.WhenAll(tasks).ConfigureAwait(false);
 
-            // キャンセルされたタスクがある場合は中断
-            if (results.Any(r => !r.Success))
+            // キャンセルされていない結果のみを処理
+            var validResults = results.Where(r => r.Success && r.Thumbnail != null).ToList();
+            if (validResults.Count == 0 && results.Any(r => !r.Success))
             {
-                token.ThrowIfCancellationRequested();
+                // すべてキャンセルされた場合は処理を中断
+                break;
             }
 
-            // バッチ結果をまとめて UI に追加（1回の Invoke でバッチ全体を処理）
-            var validResults = results
-                .Where(r => r.Thumbnail != null)
-                .OrderBy(r => r.Index)
-                .ToList();
-
+            // UI スレッドでバッチ更新
             if (validResults.Count > 0)
             {
-                try
+                await _dispatcher.InvokeAsync(() =>
                 {
-                    await _dispatcher.InvokeAsync(() =>
+                    foreach (var (index, thumbnail, _) in validResults)
                     {
-                        Button? highlightedBtn = null;
-                        
-                        foreach (var (index, thumb, _) in validResults)
+                        if (_sidebarItems.TryGetValue(index, out var existingBtn))
                         {
-                            var item = CreateThumbnailElement(thumb!, index, width);
-                            _thumbnailSidebar.Items.Add(item);
-                            _sidebarItems[index] = item;
-
-                            // アイテム追加時点での最新ハイライト要求を参照して適用
-                            if (index == _pendingHighlightIndex)
+                            if (existingBtn.Content is Image img)
                             {
-                                // 以前のハイライトを解除
-                                if (_lastHighlightedIndex != index &&
-                                    _lastHighlightedIndex != -1 &&
-                                    _sidebarItems.TryGetValue(_lastHighlightedIndex, out var oldBtn))
-                                {
-                                    oldBtn.BorderBrush = Brushes.Transparent;
-                                }
-                                item.BorderBrush = SystemColors.HighlightBrush;
-                                _lastHighlightedIndex = index;
-                                highlightedBtn = item;
+                                img.Source = thumbnail;
+                            }
+                            else
+                            {
+                                existingBtn.Content = new Image { Source = thumbnail };
                             }
                         }
-                        
-                        // ハイライトしたアイテムがあればスクロール
-                        if (highlightedBtn != null)
+                        else
                         {
-                            var btnToScroll = highlightedBtn;
-                            _ = _dispatcher.InvokeAsync(() => 
+                            var btn = new Button
                             {
-                                // スクロール時点でも最新要求と一致し、ボタンがロード済みの場合のみ実行
-                                if (_lastHighlightedIndex == (int)btnToScroll.Tag && btnToScroll.IsLoaded)
-                                {
-                                    TryScrollIntoView(btnToScroll);
-                                }
-                            }, DispatcherPriority.Loaded);
+                                Style = _thumbnailButtonStyle,
+                                Content = new Image { Source = thumbnail },
+                                Tag = index
+                            };
+                            btn.Click += (s, e) => { _ = _jumpToPageCallback(index); };
+                            _sidebarItems[index] = btn;
+                            _thumbnailSidebar.Items.Add(btn);
                         }
-                    }, DispatcherPriority.Normal, token);
-                }
-                catch (OperationCanceledException)
-                {
-                    // UI更新中にキャンセルされた場合は静かに終了
-                    return;
-                }
-            }
+                    }
+                }, System.Windows.Threading.DispatcherPriority.Normal, token);
 
-            // バッチごとに少し待機して UI スレッドに処理時間を譲る
-            try
-            {
-                await Task.Delay(5, token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                // 待機中のキャンセルは静かに終了
-                return;
+                // バッチ間で UI スレッドに処理を譲る
+                await Task.Delay(20, token).ConfigureAwait(false);
             }
         }
     }
@@ -679,5 +708,32 @@ public class ThumbnailController
             parent = VisualTreeHelper.GetParent(parent);
         }
         return false;
+    }
+
+    /// <summary>
+    /// 既存のサムネイルボタンから画像を取得します（カタログ表示用）。
+    /// サムネイルがまだ生成されていない場合は null を返します。
+    /// </summary>
+    /// <param name="index">ページインデックス</param>
+    /// <returns>サムネイル画像、または null</returns>
+    public BitmapSource? GetExistingThumbnail(int index)
+    {
+        if (_sidebarItems.TryGetValue(index, out var btn))
+        {
+            if (btn.Content is Image img && img.Source is BitmapSource source)
+            {
+                return source;
+            }
+        }
+        return null;
+    }
+    
+    /// <summary>
+    /// すべての既存サムネイルのインデックスを取得します。
+    /// </summary>
+    /// <returns>サムネイルが存在するページインデックスのコレクション</returns>
+    public IEnumerable<int> GetExistingThumbnailIndices()
+    {
+        return _sidebarItems.Keys.OrderBy(k => k);
     }
 }

@@ -61,10 +61,11 @@ public class MainWindowMenuHandler
     /// <summary>
     /// ファイルを閉じるメニュークリック時の処理
     /// </summary>
-    public void HandleMenuCloseClick()
+    public async Task HandleMenuCloseClickAsync()
     {
         _clearUiCallback();
-        _fileOpenHandler.CloseSource();
+        await _presenter.CloseSourceAsync();
+        _fileOpenHandler.ClearCurrentSource();
     }
 
     /// <summary>

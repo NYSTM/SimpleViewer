@@ -261,5 +261,10 @@ namespace SimpleViewer.Utils.UI
             
             return _treeView != null;
         }
+
+        /// <summary>
+        /// ThumbnailController への参照を公開します（カタログ表示でサムネイルを共有するため）。
+        /// </summary>
+        public ThumbnailController ThumbnailController => _thumbnailController;
     }
 }

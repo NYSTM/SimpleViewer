@@ -20,6 +20,15 @@ namespace SimpleViewer.Utils.UI
         public string? CurrentSourcePath { get; private set; }
 
         /// <summary>
+        /// 現在のソース情報をクリアします。
+        /// </summary>
+        public void ClearCurrentSource()
+        {
+            CurrentSourcePath = null;
+            _titleBarManager.SetDefaultTitle();
+        }
+
+        /// <summary>
         /// コンストラクタ
         /// </summary>
         /// <param name="presenter">Presenter インスタンス</param>
@@ -54,16 +63,6 @@ namespace SimpleViewer.Utils.UI
 
             // ツリーを構築
             await BuildTreeAsync(path);
-        }
-
-        /// <summary>
-        /// 現在のソースを閉じます。
-        /// </summary>
-        public void CloseSource()
-        {
-            _presenter.CloseSource();
-            CurrentSourcePath = null;
-            _titleBarManager.SetDefaultTitle();
         }
 
         /// <summary>
