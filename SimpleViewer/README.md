@@ -153,7 +153,9 @@ SimpleViewerの動作は、実行ファイルと同じフォルダ内の `settin
 
 ## ライセンス
 
-SimpleViewerのライセンスはプロジェクト内の `LICENSE` ファイルを参照してください。
+- ソリューション全体のライセンス: `../LICENSE.txt`
+- `SimpleViewer` パッケージ同梱用ライセンス: `LICENSE.txt`
+- 第三者ライセンス: `../THIRD_PARTY_LICENSES.md` および `THIRD_PARTY_LICENSES.txt`
 
 ## 開発者向け情報
 

@@ -20,7 +20,8 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+This file is kept for package distribution. The repository-wide license is also available at `../LICENSE.txt`.
 
 Third-party components
 ----------------------
-This product includes third-party components. See `THIRD_PARTY_LICENSES.txt` for details and the full license texts.
+This product includes third-party components. See `../THIRD_PARTY_LICENSES.md` and `THIRD_PARTY_LICENSES.txt` for details and the full license texts.

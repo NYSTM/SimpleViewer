@@ -43,7 +43,8 @@ public partial class MainWindow : Window
         _titleBarManager = new TitleBarManager(this);
 
         // ボタンスタイルを取得
-        var buttonStyle = TryFindResource(ToolBar.ButtonStyleKey) as Style
+        var thumbnailButtonStyle = TryFindResource("ThumbnailButtonStyle") as Style
+            ?? TryFindResource(ToolBar.ButtonStyleKey) as Style
             ?? Application.Current?.TryFindResource(typeof(Button)) as Style
             ?? new Style(typeof(Button));
 
@@ -63,7 +64,7 @@ public partial class MainWindow : Window
             catalogOverlay: CatalogOverlay,
             pageSlider: PageSlider,
             dispatcher: Dispatcher,
-            buttonStyle: buttonStyle,
+            buttonStyle: thumbnailButtonStyle,
             openFileCallback: OpenFileDialogAsync,
             toggleSidebarCallback: null!, // 循環参照を避けるため、後で設定
             clearUICallback: ClearUI,

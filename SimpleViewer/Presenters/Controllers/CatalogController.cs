@@ -12,6 +12,11 @@ namespace SimpleViewer.Presenters.Controllers;
 /// </summary>
 public class CatalogController : IDisposable
 {
+    private const double MinThumbnailWidth = 140;
+    private const double MaxThumbnailWidth = 220;
+    private const double ThumbnailGap = 8;
+    private const double CatalogHorizontalPadding = 28;
+
     private static readonly Brush SelectedThumbnailBorderBrush = new SolidColorBrush(Color.FromRgb(249, 115, 22));
     private static readonly Brush SelectedThumbnailBackgroundBrush = new SolidColorBrush(Color.FromRgb(255, 237, 213));
     private static readonly Brush HoverThumbnailBorderBrush = new SolidColorBrush(Color.FromRgb(251, 146, 60));
@@ -94,6 +99,8 @@ public class CatalogController : IDisposable
 
         int max = _getPageMaximum();
         int currentPageIndex = Math.Clamp(_getCurrentPageIndex(), 0, Math.Max(0, max));
+        double thumbnailWidth = GetResponsiveThumbnailWidth();
+        int requestThumbnailSize = Math.Max(160, (int)Math.Round(thumbnailWidth + 20));
 
         if (_thumbnailController != null)
         {
@@ -107,7 +114,7 @@ public class CatalogController : IDisposable
                 var thumb = _thumbnailController.GetExistingThumbnail(i);
                 if (thumb != null)
                 {
-                    var item = CreateThumbnailElement(thumb, i, 180, i == currentPageIndex);
+                    var item = CreateThumbnailElement(thumb, i, thumbnailWidth, i == currentPageIndex);
                     _dispatcher.Invoke(() =>
                     {
                         if (_catalogOverlay.Visibility == Visibility.Visible)
@@ -133,7 +140,7 @@ public class CatalogController : IDisposable
             BitmapSource? thumb = null;
             try
             {
-                thumb = await _getThumbnailAsync(i, 200, token);
+                thumb = await _getThumbnailAsync(i, requestThumbnailSize, token);
             }
             catch (OperationCanceledException) { return; }
             catch (Exception)
@@ -145,7 +152,7 @@ public class CatalogController : IDisposable
 
             if (thumb != null)
             {
-                var item = CreateThumbnailElement(thumb, i, 180, i == currentPageIndex);
+                var item = CreateThumbnailElement(thumb, i, thumbnailWidth, i == currentPageIndex);
                 _dispatcher.Invoke(() =>
                 {
                     if (_catalogOverlay.Visibility == Visibility.Visible)
@@ -166,6 +173,24 @@ public class CatalogController : IDisposable
     {
         CancelAndDispose();
         _dispatcher.Invoke(() => _catalogOverlay.Visibility = Visibility.Collapsed);
+    }
+
+    /// <summary>
+    /// 現在のオーバーレイ幅に応じてサムネイル幅を算出します。
+    /// </summary>
+    private double GetResponsiveThumbnailWidth()
+    {
+        double availableWidth = _catalogOverlay.ActualWidth - CatalogHorizontalPadding;
+        if (availableWidth <= 0)
+        {
+            return 180;
+        }
+
+        int columns = Math.Max(2, (int)(availableWidth / 190));
+        double totalGap = (columns + 1) * ThumbnailGap;
+        double width = (availableWidth - totalGap) / columns;
+
+        return Math.Clamp(width, MinThumbnailWidth, MaxThumbnailWidth);
     }
 
     /// <summary>
